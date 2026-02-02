@@ -8,25 +8,11 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
+      - CONVEX_DEPLOY_KEY=${CONVEX_DEPLOY_KEY}
       - GITHUB_ID=${GITHUB_ID}
       - GITHUB_SECRET=${GITHUB_SECRET}
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_URL=${AUTH_URL:-http://localhost:3000}
-    depends_on:
-      - server
-    networks:
-      - chql-network
-
-  server:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - CONVEX_URL=${CONVEX_URL}
     networks:
       - chql-network
 

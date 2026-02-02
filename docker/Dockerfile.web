@@ -8,18 +8,23 @@ COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
 COPY packages/shared/package*.json ./packages/shared/
 
-# Install dependencies
+# Install dependencies (including dotenvx)
 RUN npm ci --workspace=@chql/shared --workspace=apps/web
 
 # Copy source code
 COPY tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
+COPY .env.local ./
+
+# Prebuild: decrypt .env.local and inject into build
+# This prevents shipping encrypted .env files to production
+RUN npx dotenvx prebuild
 
 # Build shared package
 RUN npm run build --workspace=@chql/shared
 
-# Build Next.js app
+# Build Next.js app with decrypted env vars
 WORKDIR /app/apps/web
 RUN npm run build
 

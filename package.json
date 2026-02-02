@@ -2,29 +2,29 @@
   "name": "chql-chat",
   "version": "0.1.0",
   "private": true,
-  "description": "Natural language to DSL query converter with MCP architecture",
+  "description": "Natural language to DSL query converter with Convex backend and MCP architecture",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently --names web,server --prefix-colors cyan,yellow \"npm run dev -w apps/web\" \"npm run dev -w apps/server\"",
-    "dev:web": "npm run dev -w apps/web",
-    "dev:server": "npm run dev -w apps/server",
-    "build": "npm run build --workspaces --if-present",
+    "dev": "dotenvx run -- concurrently --names web,convex --prefix-colors cyan,yellow \"npm run dev -w apps/web\" \"npm run convex:dev\"",
+    "dev:web": "dotenvx run -- npm run dev -w apps/web",
+    "build": "dotenvx run -- npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:build": "docker-compose build",
     "docker:logs": "docker-compose logs -f",
-    "convex:dev": "npm run convex dev -w apps/web",
-    "convex:deploy": "npm run convex deploy -w apps/web"
+    "convex:dev": "dotenvx run -- npx convex dev",
+    "convex:deploy": "dotenvx run -- npx convex deploy"
   },
   "keywords": [
     "dsl",
     "mcp",
     "llm",
     "chat",
+    "convex",
     "typescript"
   ],
   "author": "",
@@ -33,6 +33,8 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@dotenvx/dotenvx": "^1.52.0",
+    "concurrently": "^9.1.0",
+    "convex": "^1.31.7"
   }
 }
