@@ -152,6 +152,7 @@ See `convex/ai.ts` for implementation details.
 ## Documentation
 
 - `docs/ENVIRONMENT_SETUP.md` - **Environment variables & dotenvx encryption guide**
+- `docs/AUTHENTICATION_FLOW.md` - **How authentication works step-by-step**
 - `docs/CLAUDE.md` - Guidance for Claude Code
 - `docs/initial-plan.md` - Original planning document
 - `docs/bachelors-specs.md` - Thesis specifications
