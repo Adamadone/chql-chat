@@ -1,0 +1,47 @@
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY apps/server/package*.json ./apps/server/
+COPY packages/shared/package*.json ./packages/shared/
+
+# Install dependencies
+RUN npm ci --workspace=@chql/shared --workspace=@chql/server
+
+# Copy source code
+COPY tsconfig.base.json ./
+COPY packages/shared ./packages/shared
+COPY apps/server ./apps/server
+
+# Build shared package
+RUN npm run build --workspace=@chql/shared
+
+# Build server
+RUN npm run build --workspace=@chql/server
+
+# Production stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 server
+
+# Copy built assets and dependencies
+COPY --from=builder /app/apps/server/dist ./dist
+COPY --from=builder /app/apps/server/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+
+USER server
+
+EXPOSE 3001
+
+ENV PORT=3001
+
+CMD ["node", "dist/index.js"]
