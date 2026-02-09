@@ -14,7 +14,6 @@ interface Message {
   content: string;
   role: "user" | "assistant";
   createdAt: number;
-  loaded?: boolean;
   metadata?: {
     dslQuery?: string;
     apiResponse?: unknown;
@@ -33,7 +32,7 @@ interface ChatMessagesProps {
   pendingMessage: PendingMessage | null;
   typewriterId: string | null;
   isWaitingForResponse: boolean;
-  onTypewriterDone: (messageId: string) => void;
+  onTypewriterDone: () => void;
 }
 
 const BOTTOM_THRESHOLD = 40;
@@ -48,7 +47,8 @@ export function ChatMessages({
 }: ChatMessagesProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [isLatched, setIsLatched] = useState(true);
+  const isLatchedRef = useRef(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
 
   const getViewport = useCallback(() => {
     return scrollAreaRef.current?.querySelector<HTMLDivElement>(
@@ -64,12 +64,11 @@ export function ChatMessages({
   }, [getViewport]);
 
   const handleLatchedScroll = useCallback(() => {
-    if (isLatched) {
+    if (isLatchedRef.current) {
       scrollToBottom();
     }
-  }, [isLatched, scrollToBottom]);
+  }, [scrollToBottom]);
 
-  // Detect manual scroll-up to unlatch, re-latch when near bottom
   useEffect(() => {
     const viewport = getViewport();
     if (!viewport) return;
@@ -77,29 +76,31 @@ export function ChatMessages({
     const onScroll = () => {
       const distanceFromBottom =
         viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      setIsLatched(distanceFromBottom <= BOTTOM_THRESHOLD);
+      const latched = distanceFromBottom <= BOTTOM_THRESHOLD;
+      isLatchedRef.current = latched;
+      setShowJumpButton(!latched);
     };
 
     viewport.addEventListener("scroll", onScroll, { passive: true });
     return () => viewport.removeEventListener("scroll", onScroll);
   }, [getViewport]);
 
-  // Auto-scroll on new messages / pending message changes (only when latched)
   useEffect(() => {
-    if (isLatched) {
+    if (isLatchedRef.current) {
       scrollToBottom();
     }
-  }, [messages.length, pendingMessage?.key, isLatched, scrollToBottom]);
+  }, [messages.length, pendingMessage?.key, scrollToBottom]);
 
-  // Re-latch when user sends a message
   useEffect(() => {
     if (pendingMessage) {
-      setIsLatched(true);
+      isLatchedRef.current = true;
+      setShowJumpButton(false);
     }
   }, [pendingMessage]);
 
   const handleJumpToBottom = useCallback(() => {
-    setIsLatched(true);
+    isLatchedRef.current = true;
+    setShowJumpButton(false);
     scrollToBottom();
   }, [scrollToBottom]);
 
@@ -118,14 +119,14 @@ export function ChatMessages({
   return (
     <div className="relative min-h-0 flex-1">
       <ScrollArea className="h-full" ref={scrollAreaRef}>
-        <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+        <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
           {messages.map((message) => {
             if (message.role === "assistant" && message._id === typewriterId) {
               return (
                 <TypewriterBubble
                   key={message._id}
                   message={message}
-                  onDone={() => onTypewriterDone(message._id)}
+                  onDone={onTypewriterDone}
                   onProgress={handleLatchedScroll}
                 />
               );
@@ -149,7 +150,7 @@ export function ChatMessages({
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
-      {!isLatched && (
+      {showJumpButton && (
         <Button
           variant="outline"
           size="icon"

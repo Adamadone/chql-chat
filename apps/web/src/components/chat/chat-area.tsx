@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
@@ -22,24 +22,10 @@ interface PendingMessage {
 
 function MessagesSkeleton() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-1 flex-col gap-6 px-4 py-6">
-      <div className="flex gap-3">
-        <Skeleton className="size-8 shrink-0 rounded-full" />
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-4 w-72" />
-        </div>
-      </div>
-      <div className="flex justify-end gap-3">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="size-8 shrink-0 rounded-full" />
-      </div>
-      <div className="flex gap-3">
-        <Skeleton className="size-8 shrink-0 rounded-full" />
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-64" />
-          <Skeleton className="h-4 w-56" />
-          <Skeleton className="h-4 w-36" />
+    <div className="min-h-0 flex-1 px-4 py-6">
+      <div className="mx-auto max-w-4xl">
+        <div className="flex w-full max-w-md flex-col gap-2">
+          <Skeleton className="h-20 w-4xl" />
         </div>
       </div>
     </div>
@@ -52,34 +38,39 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
     chatId ? { chatId } : "skip"
   );
 
-  const markLoaded = useMutation(api.messages.markLoaded);
-
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [typewriterId, setTypewriterId] = useState<string | null>(null);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
-  const knownIdsRef = useRef<Set<string>>(new Set());
+  const initialLoadRef = useRef(true);
+  const lastMessageCountRef = useRef(0);
 
   useEffect(() => {
     if (!messages) return;
 
-    for (const msg of messages) {
-      if (!knownIdsRef.current.has(msg._id)) {
-        knownIdsRef.current.add(msg._id);
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false;
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
 
-        if (msg.role === "user" && pendingMessage) {
-          setPendingMessage(null);
-        }
+    if (messages.length > lastMessageCountRef.current) {
+      const last = messages[messages.length - 1];
+      lastMessageCountRef.current = messages.length;
 
-        if (msg.role === "assistant" && !msg.loaded) {
-          setTypewriterId(msg._id);
-          setIsWaitingForResponse(false);
-        }
+      if (last.role === "user" && pendingMessage) {
+        setPendingMessage(null);
+      }
+
+      if (last.role === "assistant") {
+        setTypewriterId(last._id);
+        setIsWaitingForResponse(false);
       }
     }
   }, [messages, pendingMessage]);
 
   useEffect(() => {
-    knownIdsRef.current.clear();
+    initialLoadRef.current = true;
+    lastMessageCountRef.current = 0;
     setPendingMessage(null);
     setTypewriterId(null);
     setIsWaitingForResponse(false);
@@ -90,10 +81,9 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
     setIsWaitingForResponse(true);
   }, []);
 
-  const handleTypewriterDone = useCallback((messageId: string) => {
+  const handleTypewriterDone = useCallback(() => {
     setTypewriterId(null);
-    markLoaded({ messageId: messageId as Id<"messages"> });
-  }, [markLoaded]);
+  }, []);
 
   if (!chatId) {
     return (
@@ -110,7 +100,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
             </p>
           </div>
         </div>
-        <div className="border-t p-4">
+        <div className="px-4 pb-4">
           <ChatInput
             chatId={null}
             onChatCreated={onChatCreated}
@@ -137,7 +127,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
           onTypewriterDone={handleTypewriterDone}
         />
       )}
-      <div className="border-t p-4">
+      <div className="px-4 pb-4 pt-2">
         <ChatInput
           chatId={chatId}
           onChatCreated={onChatCreated}

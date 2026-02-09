@@ -80,8 +80,8 @@ export function ChatInput({ chatId, onChatCreated, onOptimisticSend }: ChatInput
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="relative rounded-xl border bg-background shadow-sm focus-within:border-ring focus-within:ring-[1px] focus-within:ring-ring/30">
+    <div className="mx-auto w-full max-w-4xl">
+      <div className="relative rounded-2xl border border-border/60 bg-background shadow-lg focus-within:border-ring focus-within:ring-[1px] focus-within:ring-ring/30">
         <textarea
           ref={textareaRef}
           value={input}
