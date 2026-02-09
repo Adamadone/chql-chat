@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
-/**
- * List all chats for a user, ordered by most recently updated
- */
 export const list = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
@@ -15,9 +12,6 @@ export const list = query({
   },
 });
 
-/**
- * Get a single chat by ID
- */
 export const get = query({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {
@@ -25,9 +19,6 @@ export const get = query({
   },
 });
 
-/**
- * Create a new chat conversation
- */
 export const create = mutation({
   args: {
     userId: v.id("users"),
@@ -44,9 +35,6 @@ export const create = mutation({
   },
 });
 
-/**
- * Update chat title
- */
 export const updateTitle = mutation({
   args: {
     chatId: v.id("chats"),
@@ -60,21 +48,35 @@ export const updateTitle = mutation({
   },
 });
 
-/**
- * Delete a chat and all its messages
- */
+export const findEmpty = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const chats = await ctx.db
+      .query("chats")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    for (const chat of chats) {
+      if (chat.title !== "New Chat") continue;
+      const firstMessage = await ctx.db
+        .query("messages")
+        .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
+        .first();
+      if (!firstMessage) return chat;
+    }
+    return null;
+  },
+});
+
 export const remove = mutation({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {
-    // Delete all messages in the chat
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_chat", (q) => q.eq("chatId", args.chatId))
       .collect();
 
     await Promise.all(messages.map((msg) => ctx.db.delete(msg._id)));
-
-    // Delete the chat itself
     await ctx.db.delete(args.chatId);
   },
 });

@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
-/**
- * List all messages in a chat, ordered by creation time
- */
 export const list = query({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {
@@ -15,9 +12,6 @@ export const list = query({
   },
 });
 
-/**
- * Send a message to a chat
- */
 export const send = mutation({
   args: {
     chatId: v.id("chats"),
@@ -32,7 +26,6 @@ export const send = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    // Update the chat's updatedAt timestamp
     await ctx.db.patch(args.chatId, { updatedAt: Date.now() });
 
     return await ctx.db.insert("messages", {
@@ -45,9 +38,6 @@ export const send = mutation({
   },
 });
 
-/**
- * Clear all messages in a chat
- */
 export const clear = mutation({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {

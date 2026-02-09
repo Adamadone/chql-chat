@@ -23,9 +23,7 @@ export const create = mutation({
       .withIndex("by_email", (q) => q.eq("email", args.email))
       .first();
 
-    if (existing) {
-      return existing._id;
-    }
+    if (existing) return existing._id;
 
     return await ctx.db.insert("users", {
       email: args.email,
