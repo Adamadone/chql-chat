@@ -123,3 +123,111 @@
     @apply bg-background text-foreground;
   }
 }
+
+.prose-chat {
+  line-height: 1.6;
+}
+.prose-chat > *:first-child {
+  margin-top: 0;
+}
+.prose-chat > *:last-child {
+  margin-bottom: 0;
+}
+.prose-chat p {
+  margin: 0.5em 0;
+}
+.prose-chat p:first-child {
+  margin-top: 0;
+}
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.prose-chat ul {
+  list-style-type: disc;
+}
+.prose-chat ol {
+  list-style-type: decimal;
+}
+.prose-chat li {
+  margin: 0.25em 0;
+}
+.prose-chat strong {
+  font-weight: 600;
+}
+.prose-chat em {
+  font-style: italic;
+}
+.prose-chat blockquote {
+  border-left: 2px solid currentColor;
+  opacity: 0.8;
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+.prose-chat h1 {
+  font-size: 1.25em;
+}
+.prose-chat h2 {
+  font-size: 1.125em;
+}
+.prose-chat h3 {
+  font-size: 1em;
+}
+.prose-chat hr {
+  border: none;
+  border-top: 1px solid currentColor;
+  opacity: 0.2;
+  margin: 0.75em 0;
+}
+.prose-chat table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid currentColor;
+  opacity: 0.9;
+  padding: 0.25em 0.5em;
+}
+.prose-chat th {
+  font-weight: 600;
+}
+
+@keyframes message-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes message-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-message-in {
+  animation: message-slide-in 0.3s ease-out both;
+}
+
+.animate-message-fade {
+  animation: message-fade-in 0.25s ease-out both;
+}

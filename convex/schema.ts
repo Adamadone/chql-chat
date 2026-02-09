@@ -19,6 +19,7 @@ export default defineSchema({
     content: v.string(),
     role: v.union(v.literal("user"), v.literal("assistant")),
     createdAt: v.number(),
+    loaded: v.optional(v.boolean()),
     metadata: v.optional(
       v.object({
         dslQuery: v.optional(v.string()),

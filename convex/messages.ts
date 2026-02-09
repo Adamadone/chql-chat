@@ -46,6 +46,22 @@ export const send = mutation({
   },
 });
 
+export const markLoaded = mutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return;
+
+    const chat = await ctx.db.get(message.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    await ctx.db.patch(args.messageId, { loaded: true });
+  },
+});
+
 export const clear = mutation({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {

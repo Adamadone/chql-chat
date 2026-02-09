@@ -10,9 +10,10 @@ import type { Id } from "convex/_generated/dataModel";
 interface ChatInputProps {
   chatId: Id<"chats"> | null;
   onChatCreated: (chatId: Id<"chats">) => void;
+  onOptimisticSend: (content: string) => void;
 }
 
-export function ChatInput({ chatId, onChatCreated }: ChatInputProps) {
+export function ChatInput({ chatId, onChatCreated, onOptimisticSend }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +40,7 @@ export function ChatInput({ chatId, onChatCreated }: ChatInputProps) {
 
     setIsSending(true);
     setInput("");
+    onOptimisticSend(trimmed);
 
     try {
       let targetChatId = chatId;
@@ -68,7 +70,7 @@ export function ChatInput({ chatId, onChatCreated }: ChatInputProps) {
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [input, isSending, chatId, emptyChat, createChat, onChatCreated, processMessage, generateTitle]);
+  }, [input, isSending, chatId, emptyChat, createChat, onChatCreated, onOptimisticSend, processMessage, generateTitle]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -79,7 +81,7 @@ export function ChatInput({ chatId, onChatCreated }: ChatInputProps) {
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="relative rounded-xl border bg-background shadow-sm focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+      <div className="relative rounded-xl border bg-background shadow-sm focus-within:border-ring focus-within:ring-[1px] focus-within:ring-ring/30">
         <textarea
           ref={textareaRef}
           value={input}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "convex/_generated/api";
@@ -16,6 +17,46 @@ import {
 import { MessageSquare, Plus, Trash2, LogOut } from "lucide-react";
 import type { Id, Doc } from "convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
+
+const TITLE_CHARS_PER_FRAME = 2;
+const TITLE_FRAME_INTERVAL = 18;
+
+function useAnimatedTitle(title: string) {
+  const prevRef = useRef(title);
+  const [displayed, setDisplayed] = useState(title);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = title;
+
+    if (prev === "New Chat" && title !== "New Chat") {
+      setDisplayed("");
+      let index = 0;
+      let raf: number;
+      let last = 0;
+
+      const step = (time: number) => {
+        if (time - last >= TITLE_FRAME_INTERVAL) {
+          last = time;
+          index += TITLE_CHARS_PER_FRAME;
+          if (index >= title.length) {
+            setDisplayed(title);
+            return;
+          }
+          setDisplayed(title.slice(0, index));
+        }
+        raf = requestAnimationFrame(step);
+      };
+
+      raf = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf);
+    }
+
+    setDisplayed(title);
+  }, [title]);
+
+  return displayed;
+}
 
 interface ChatSidebarProps {
   activeChatId: Id<"chats"> | null;
@@ -100,37 +141,13 @@ export function ChatSidebar({
           ) : (
             <div className="space-y-1">
               {chats.map((chat) => (
-                <button
+                <ChatListItem
                   key={chat._id}
-                  onClick={() => onSelectChat(chat._id)}
-                  className={cn(
-                    "group flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent",
-                    activeChatId === chat._id && "bg-accent"
-                  )}
-                >
-                  <span className="truncate">{chat.title}</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => handleDeleteChat(e, chat._id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            handleDeleteChat(
-                              e as unknown as React.MouseEvent,
-                              chat._id
-                            );
-                          }
-                        }}
-                        className="shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100"
-                      >
-                        <Trash2 className="size-3 text-muted-foreground" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">Delete</TooltipContent>
-                  </Tooltip>
-                </button>
+                  chat={chat}
+                  isActive={activeChatId === chat._id}
+                  onSelect={() => onSelectChat(chat._id)}
+                  onDelete={(e) => handleDeleteChat(e, chat._id)}
+                />
               ))}
             </div>
           )}
@@ -160,5 +177,46 @@ export function ChatSidebar({
         </div>
       </div>
     </TooltipProvider>
+  );
+}
+
+interface ChatListItemProps {
+  chat: Doc<"chats">;
+  isActive: boolean;
+  onSelect: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}
+
+function ChatListItem({ chat, isActive, onSelect, onDelete }: ChatListItemProps) {
+  const displayedTitle = useAnimatedTitle(chat.title);
+
+  return (
+    <button
+      onClick={onSelect}
+      className={cn(
+        "group flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent",
+        isActive && "bg-accent"
+      )}
+    >
+      <span className="truncate">{displayedTitle}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={onDelete}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                onDelete(e as unknown as React.MouseEvent);
+              }
+            }}
+            className="shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-destructive/10 group-hover:opacity-100"
+          >
+            <Trash2 className="size-3 text-muted-foreground" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="right">Delete</TooltipContent>
+      </Tooltip>
+    </button>
   );
 }
