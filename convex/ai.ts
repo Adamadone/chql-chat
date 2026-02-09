@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import Anthropic from "@anthropic-ai/sdk";
 
 export const processMessage = action({
@@ -11,6 +12,12 @@ export const processMessage = action({
     userMessage: v.string(),
   },
   handler: async (ctx, args): Promise<{ success: boolean; response?: string; error?: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { success: false, error: "Not authenticated" };
+
+    const chat = await ctx.runQuery(api.chats.get, { chatId: args.chatId });
+    if (!chat) return { success: false, error: "Chat not found or not authorized" };
+
     try {
       await ctx.runMutation(api.messages.send, {
         chatId: args.chatId,
@@ -24,7 +31,7 @@ export const processMessage = action({
 
       const systemPrompt = buildSystemPrompt();
       const llmMessages: Array<{ role: "user" | "assistant"; content: string }> =
-        messages.map((m: { role: string; content: string }) => ({
+        messages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         }));
@@ -82,6 +89,9 @@ export const generateTitle = action({
     chatId: v.id("chats"),
   },
   handler: async (ctx, args): Promise<string> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return "New Chat";
+
     const messages = await ctx.runQuery(api.messages.list, {
       chatId: args.chatId,
     });
@@ -91,7 +101,7 @@ export const generateTitle = action({
       return chat?.title ?? "New Chat";
     }
 
-    const firstUserMessage = messages.find((m: { role: string }) => m.role === "user");
+    const firstUserMessage = messages.find((m) => m.role === "user");
     if (!firstUserMessage) return "New Chat";
 
     const apiKey = process.env.ANTHROPIC_API_KEY;

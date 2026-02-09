@@ -1,19 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { useUserSync } from "@/hooks/use-user-sync";
+import { useQuery } from "convex/react";
+import { Authenticated, AuthLoading } from "convex/react";
+import { api } from "convex/_generated/api";
 import { ChatSidebar } from "@/components/chat/chat-sidebar";
 import { ChatArea } from "@/components/chat/chat-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Id } from "convex/_generated/dataModel";
-import { useSession } from "next-auth/react";
 
-export function ChatShell() {
-  const { userId, isLoading } = useUserSync();
+function ChatLayout() {
   const [activeChatId, setActiveChatId] = useState<Id<"chats"> | null>(null);
-  const { data: session } = useSession();
+  const user = useQuery(api.users.currentUser);
 
-  if (isLoading) {
+  if (user === undefined) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -24,7 +24,7 @@ export function ChatShell() {
     );
   }
 
-  if (!userId) {
+  if (!user) {
     return (
       <div className="flex h-screen items-center justify-center">
         <p className="text-muted-foreground">
@@ -37,17 +37,33 @@ export function ChatShell() {
   return (
     <div className="flex h-screen overflow-hidden">
       <ChatSidebar
-        userId={userId}
         activeChatId={activeChatId}
         onSelectChat={setActiveChatId}
-        session={session}
+        user={user}
       />
       <ChatArea
-        userId={userId}
         chatId={activeChatId}
         onChatCreated={setActiveChatId}
-        session={session}
+        user={user}
       />
     </div>
+  );
+}
+
+export function ChatShell() {
+  return (
+    <>
+      <AuthLoading>
+        <div className="flex h-screen items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+      </AuthLoading>
+      <Authenticated>
+        <ChatLayout />
+      </Authenticated>
+    </>
   );
 }

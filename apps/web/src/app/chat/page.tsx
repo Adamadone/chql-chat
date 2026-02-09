@@ -1,11 +1,9 @@
-import { auth } from "@/auth";
+import { isAuthenticatedNextjs } from "@convex-dev/auth/nextjs/server";
 import { redirect } from "next/navigation";
 import { ChatShell } from "@/components/chat/chat-shell";
 
 export default async function ChatPage() {
-  const session = await auth();
-
-  if (!session?.user) {
+  if (!(await isAuthenticatedNextjs())) {
     redirect("/auth/signin");
   }
 

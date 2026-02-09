@@ -8,18 +8,17 @@ import { Send, Loader2 } from "lucide-react";
 import type { Id } from "convex/_generated/dataModel";
 
 interface ChatInputProps {
-  userId: Id<"users">;
   chatId: Id<"chats"> | null;
   onChatCreated: (chatId: Id<"chats">) => void;
 }
 
-export function ChatInput({ userId, chatId, onChatCreated }: ChatInputProps) {
+export function ChatInput({ chatId, onChatCreated }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const createChat = useMutation(api.chats.create);
-  const emptyChat = useQuery(api.chats.findEmpty, { userId });
+  const emptyChat = useQuery(api.chats.findEmpty);
   const processMessage = useAction(api.ai.processMessage);
   const generateTitle = useAction(api.ai.generateTitle);
 
@@ -48,7 +47,7 @@ export function ChatInput({ userId, chatId, onChatCreated }: ChatInputProps) {
         if (emptyChat) {
           targetChatId = emptyChat._id;
         } else {
-          targetChatId = await createChat({ userId });
+          targetChatId = await createChat({});
         }
         onChatCreated(targetChatId);
       }
@@ -69,7 +68,7 @@ export function ChatInput({ userId, chatId, onChatCreated }: ChatInputProps) {
       setIsSending(false);
       textareaRef.current?.focus();
     }
-  }, [input, isSending, chatId, userId, emptyChat, createChat, onChatCreated, processMessage, generateTitle]);
+  }, [input, isSending, chatId, emptyChat, createChat, onChatCreated, processMessage, generateTitle]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {

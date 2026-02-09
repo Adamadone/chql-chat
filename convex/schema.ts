@@ -1,13 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
-  users: defineTable({
-    email: v.string(),
-    name: v.optional(v.string()),
-    image: v.optional(v.string()),
-    createdAt: v.number(),
-  }).index("by_email", ["email"]),
+  ...authTables,
 
   chats: defineTable({
     userId: v.id("users"),
@@ -31,10 +27,4 @@ export default defineSchema({
       })
     ),
   }).index("by_chat", ["chatId"]),
-
-  sessions: defineTable({
-    userId: v.id("users"),
-    sessionToken: v.string(),
-    expires: v.number(),
-  }).index("by_session_token", ["sessionToken"]),
 });

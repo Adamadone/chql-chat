@@ -1,11 +1,9 @@
-import { auth } from "@/auth";
+import { isAuthenticatedNextjs } from "@convex-dev/auth/nextjs/server";
 import { redirect } from "next/navigation";
 import { HeroSection } from "@/components/hero-section";
 
 export default async function Home() {
-  const session = await auth();
-
-  if (session?.user) {
+  if (await isAuthenticatedNextjs()) {
     redirect("/chat");
   }
 

@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Session } from "next-auth";
+import type { Doc } from "convex/_generated/dataModel";
 
 interface Message {
   _id: string;
@@ -21,10 +21,10 @@ interface Message {
 
 interface ChatMessagesProps {
   messages: Message[];
-  session: Session | null;
+  user: Doc<"users">;
 }
 
-export function ChatMessages({ messages, session }: ChatMessagesProps) {
+export function ChatMessages({ messages, user }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function ChatMessages({ messages, session }: ChatMessagesProps) {
             </div>
             {message.role === "user" && (
               <Avatar size="sm" className="mt-0.5 shrink-0">
-                <AvatarImage src={session?.user?.image ?? undefined} />
+                <AvatarImage src={user.image ?? undefined} />
                 <AvatarFallback>
                   <User className="size-3.5" />
                 </AvatarFallback>

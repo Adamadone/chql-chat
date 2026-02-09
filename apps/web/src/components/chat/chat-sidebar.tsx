@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery, useMutation } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "convex/_generated/api";
-import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -14,25 +14,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { MessageSquare, Plus, Trash2, LogOut } from "lucide-react";
-import type { Id } from "convex/_generated/dataModel";
+import type { Id, Doc } from "convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-import { Session } from "next-auth";
 
 interface ChatSidebarProps {
-  userId: Id<"users">;
   activeChatId: Id<"chats"> | null;
   onSelectChat: (chatId: Id<"chats"> | null) => void;
-  session: Session | null;
+  user: Doc<"users">;
 }
 
 export function ChatSidebar({
-  userId,
   activeChatId,
   onSelectChat,
-  session,
+  user,
 }: ChatSidebarProps) {
-  const chats = useQuery(api.chats.list, { userId });
-  const emptyChat = useQuery(api.chats.findEmpty, { userId });
+  const { signOut } = useAuthActions();
+  const chats = useQuery(api.chats.list);
+  const emptyChat = useQuery(api.chats.findEmpty);
   const createChat = useMutation(api.chats.create);
   const removeChat = useMutation(api.chats.remove);
 
@@ -41,7 +39,7 @@ export function ChatSidebar({
       onSelectChat(emptyChat._id);
       return;
     }
-    const chatId = await createChat({ userId });
+    const chatId = await createChat({});
     onSelectChat(chatId);
   };
 
@@ -56,10 +54,10 @@ export function ChatSidebar({
     }
   };
 
-  const initials = session?.user?.name
-    ? session.user.name
+  const initials = user.name
+    ? user.name
         .split(" ")
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join("")
         .toUpperCase()
         .slice(0, 2)
@@ -141,18 +139,18 @@ export function ChatSidebar({
         <Separator />
         <div className="flex items-center gap-2 p-3">
           <Avatar size="sm">
-            <AvatarImage src={session?.user?.image ?? undefined} />
+            <AvatarImage src={user.image ?? undefined} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
           </Avatar>
           <span className="flex-1 truncate text-xs font-medium">
-            {session?.user?.name ?? session?.user?.email ?? "User"}
+            {user.name ?? user.email ?? "User"}
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 size="icon-xs"
                 variant="ghost"
-                onClick={() => signOut({ callbackUrl: "/" })}
+                onClick={() => void signOut()}
               >
                 <LogOut className="size-3.5" />
               </Button>

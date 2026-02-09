@@ -5,17 +5,15 @@ import { api } from "convex/_generated/api";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageSquare } from "lucide-react";
-import type { Id } from "convex/_generated/dataModel";
-import { Session } from "next-auth";
+import type { Id, Doc } from "convex/_generated/dataModel";
 
 interface ChatAreaProps {
-  userId: Id<"users">;
   chatId: Id<"chats"> | null;
   onChatCreated: (chatId: Id<"chats">) => void;
-  session: Session | null;
+  user: Doc<"users">;
 }
 
-export function ChatArea({ userId, chatId, onChatCreated, session }: ChatAreaProps) {
+export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const messages = useQuery(
     api.messages.list,
     chatId ? { chatId } : "skip"
@@ -37,11 +35,7 @@ export function ChatArea({ userId, chatId, onChatCreated, session }: ChatAreaPro
           </div>
         </div>
         <div className="border-t p-4">
-          <ChatInput
-            userId={userId}
-            chatId={null}
-            onChatCreated={onChatCreated}
-          />
+          <ChatInput chatId={null} onChatCreated={onChatCreated} />
         </div>
       </div>
     );
@@ -49,13 +43,9 @@ export function ChatArea({ userId, chatId, onChatCreated, session }: ChatAreaPro
 
   return (
     <div className="flex flex-1 flex-col">
-      <ChatMessages messages={messages ?? []} session={session} />
+      <ChatMessages messages={messages ?? []} user={user} />
       <div className="border-t p-4">
-        <ChatInput
-          userId={userId}
-          chatId={chatId}
-          onChatCreated={onChatCreated}
-        />
+        <ChatInput chatId={chatId} onChatCreated={onChatCreated} />
       </div>
     </div>
   );
