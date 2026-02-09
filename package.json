@@ -41,6 +41,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
     "@auth/core": "^0.37.4",
-    "@convex-dev/auth": "^0.0.90"
+    "@convex-dev/auth": "^0.0.90",
+    "@convex-dev/migrations": "^0.3.1"
   }
 }
