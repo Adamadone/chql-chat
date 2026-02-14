@@ -281,7 +281,7 @@ Convex actions run on Convex's cloud infrastructure (not on your server). They n
 Set them via the Convex dashboard at `https://dashboard.convex.dev` or via the CLI from your **local machine**:
 
 ```bash
-npx convex env set MCP_SERVER_URL https://mcp.example.com/mcp
+npx convex env set MCP_SERVER_URL https://mcp.azacios.cz/mcp
 npx convex env set MCP_AUTH_TOKEN <same-value-as-on-server>
 npx convex env set ANTHROPIC_API_KEY <your-anthropic-key>
 npx convex env set AUTH_SECRET <your-auth-secret>
