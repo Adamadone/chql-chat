@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
-        - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
+        - NEXT_PUBLIC_CONVEX_URL=https://qualified-malamute-653.convex.cloud
     ports:
       - "127.0.0.1:3000:3000"
     environment:
