@@ -63,6 +63,32 @@ export function ChatMessages({
     }
   }, [getViewport]);
 
+  const smoothScrollToBottom = useCallback(() => {
+    const viewport = getViewport();
+    if (!viewport) return;
+
+    const start = viewport.scrollTop;
+    const target = viewport.scrollHeight - viewport.clientHeight;
+    const distance = target - start;
+    if (distance <= 0) return;
+
+    const duration = Math.min(400, Math.max(150, distance * 0.5));
+    const startTime = performance.now();
+
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      viewport.scrollTop = start + distance * easeOutCubic(progress);
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      }
+    };
+
+    requestAnimationFrame(step);
+  }, [getViewport]);
+
   const handleLatchedScroll = useCallback(() => {
     if (isLatchedRef.current) {
       scrollToBottom();
@@ -101,8 +127,8 @@ export function ChatMessages({
   const handleJumpToBottom = useCallback(() => {
     isLatchedRef.current = true;
     setShowJumpButton(false);
-    scrollToBottom();
-  }, [scrollToBottom]);
+    smoothScrollToBottom();
+  }, [smoothScrollToBottom]);
 
   const showThinking = isWaitingForResponse && !typewriterId;
 

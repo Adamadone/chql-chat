@@ -122,6 +122,15 @@
   body {
     @apply bg-background text-foreground;
   }
+  button,
+  [role="button"],
+  a[href],
+  select,
+  [type="button"],
+  [type="submit"],
+  [type="reset"] {
+    cursor: pointer;
+  }
 }
 
 .prose-chat {
@@ -230,4 +239,41 @@
 
 .animate-message-fade {
   animation: message-fade-in 0.25s ease-out both;
+}
+
+/* Hero page */
+
+.hero-gradient-text {
+  background: linear-gradient(135deg, oklch(0.55 0.2 260), oklch(0.6 0.22 300));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
+  padding-bottom: 0.1em;
+}
+
+.dark .hero-gradient-text {
+  background: linear-gradient(135deg, oklch(0.7 0.2 260), oklch(0.75 0.22 300));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes hero-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-fade-in {
+  animation: hero-fade-up 0.6s ease-out both;
+}
+
+.hero-fade-in-delayed {
+  animation: hero-fade-up 0.6s ease-out 0.2s both;
 }
