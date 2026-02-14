@@ -279,22 +279,19 @@ async function startHttpTransport(): Promise<void> {
           return;
         }
 
+        const newSessionId = crypto.randomUUID();
         transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => crypto.randomUUID(),
+          sessionIdGenerator: () => newSessionId,
         });
 
+        transports.set(newSessionId, transport);
+
         transport.onclose = () => {
-          if (transport.sessionId) {
-            transports.delete(transport.sessionId);
-          }
+          transports.delete(newSessionId);
         };
 
         const server = createMcpServer();
         await server.connect(transport);
-
-        if (transport.sessionId) {
-          transports.set(transport.sessionId, transport);
-        }
       } else {
         res.status(404).json({ error: "Session not found" });
         return;

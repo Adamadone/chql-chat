@@ -37,10 +37,15 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
     api.messages.list,
     chatId ? { chatId } : "skip"
   );
+  const chat = useQuery(
+    api.chats.get,
+    chatId ? { chatId } : "skip"
+  );
 
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [typewriterId, setTypewriterId] = useState<string | null>(null);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const initialLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
 
@@ -62,8 +67,12 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
       }
 
       if (last.role === "assistant") {
-        setTypewriterId(last._id);
-        setIsWaitingForResponse(false);
+        if (last.interrupted) {
+          setIsWaitingForResponse(false);
+        } else {
+          setTypewriterId(last._id);
+          setIsWaitingForResponse(false);
+        }
       }
     }
   }, [messages, pendingMessage]);
@@ -74,6 +83,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
     setPendingMessage(null);
     setTypewriterId(null);
     setIsWaitingForResponse(false);
+    setIsSending(false);
   }, [chatId]);
 
   const handleOptimisticSend = useCallback((content: string) => {
@@ -84,6 +94,18 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const handleTypewriterDone = useCallback(() => {
     setTypewriterId(null);
   }, []);
+
+  const handleSendingChange = useCallback((sending: boolean) => {
+    setIsSending(sending);
+    if (!sending) {
+      setIsWaitingForResponse(false);
+    }
+  }, []);
+
+  const userMessageHistory = (messages ?? [])
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .reverse();
 
   if (!chatId) {
     return (
@@ -105,6 +127,9 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
             chatId={null}
             onChatCreated={onChatCreated}
             onOptimisticSend={handleOptimisticSend}
+            isSending={isSending}
+            onSendingChange={handleSendingChange}
+            userMessageHistory={userMessageHistory}
           />
         </div>
       </div>
@@ -125,6 +150,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
           typewriterId={typewriterId}
           isWaitingForResponse={isWaitingForResponse}
           onTypewriterDone={handleTypewriterDone}
+          activeToolCall={chat?.activeToolCall ?? null}
         />
       )}
       <div className="px-4 pb-4 pt-2">
@@ -132,6 +158,9 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
           chatId={chatId}
           onChatCreated={onChatCreated}
           onOptimisticSend={handleOptimisticSend}
+          isSending={isSending}
+          onSendingChange={handleSendingChange}
+          userMessageHistory={userMessageHistory}
         />
       </div>
     </div>

@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "dotenvx run -- concurrently --names web,convex --prefix-colors cyan,yellow \"npm run dev -w apps/web\" \"npm run convex:dev\"",
+    "dev": "dotenvx run -- concurrently --names web,convex,mcp --prefix-colors cyan,yellow,magenta \"npm run dev -w apps/web\" \"npm run convex:dev\" \"npm run mcp:dev:run\"",
     "dev:web": "dotenvx run -- npm run dev -w apps/web",
     "build": "dotenvx run -- npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
@@ -20,6 +20,7 @@
     "convex:deploy": "dotenvx run -- npx convex deploy",
     "mcp:build": "npm run build -w apps/mcp-server",
     "mcp:dev": "npm run dev -w apps/mcp-server",
+    "mcp:dev:run": "npm run build -w apps/mcp-server && node apps/mcp-server/build/index.js",
     "mcp:start": "dotenvx run -- npm run start -w apps/mcp-server"
   },
   "keywords": [

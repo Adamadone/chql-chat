@@ -29,6 +29,7 @@ export const send = mutation({
         dslQuery: v.optional(v.string()),
         apiResponse: v.optional(v.any()),
         error: v.optional(v.string()),
+        toolCalls: v.optional(v.array(v.string())),
       })
     ),
   },
@@ -47,6 +48,27 @@ export const send = mutation({
       role: args.role,
       createdAt: Date.now(),
       metadata: args.metadata,
+    });
+  },
+});
+
+export const interrupt = mutation({
+  args: { chatId: v.id("chats") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    await ctx.db.patch(args.chatId, { updatedAt: Date.now() });
+
+    return await ctx.db.insert("messages", {
+      chatId: args.chatId,
+      content: "Message generation was interrupted.",
+      role: "assistant",
+      createdAt: Date.now(),
+      interrupted: true,
     });
   },
 });

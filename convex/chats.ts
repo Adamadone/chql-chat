@@ -88,6 +88,24 @@ export const findEmpty = query({
   },
 });
 
+export const setActiveToolCall = mutation({
+  args: {
+    chatId: v.id("chats"),
+    toolName: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    await ctx.db.patch(args.chatId, {
+      activeToolCall: args.toolName ?? undefined,
+    });
+  },
+});
+
 export const remove = mutation({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {

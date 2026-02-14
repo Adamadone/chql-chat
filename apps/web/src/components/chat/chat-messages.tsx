@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bot, User, Loader2, ArrowDown } from "lucide-react";
+import { Bot, User, Loader2, ArrowDown, ChevronRight, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,12 @@ interface Message {
   content: string;
   role: "user" | "assistant";
   createdAt: number;
+  interrupted?: boolean;
   metadata?: {
     dslQuery?: string;
     apiResponse?: unknown;
     error?: string;
+    toolCalls?: string[];
   };
 }
 
@@ -33,6 +35,7 @@ interface ChatMessagesProps {
   typewriterId: string | null;
   isWaitingForResponse: boolean;
   onTypewriterDone: () => void;
+  activeToolCall: string | null;
 }
 
 const BOTTOM_THRESHOLD = 40;
@@ -44,6 +47,7 @@ export function ChatMessages({
   typewriterId,
   isWaitingForResponse,
   onTypewriterDone,
+  activeToolCall,
 }: ChatMessagesProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -172,7 +176,7 @@ export function ChatMessages({
               user={user}
             />
           )}
-          {showThinking && <ThinkingIndicator key="thinking" />}
+          {showThinking && <ThinkingIndicator activeToolCall={activeToolCall} />}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
@@ -198,6 +202,17 @@ interface MessageBubbleProps {
 function MessageBubble({ message, user }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
+  if (message.interrupted) {
+    return (
+      <div className="flex gap-3 justify-start">
+        <BotAvatar />
+        <div className="max-w-[80%] rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm leading-relaxed text-destructive">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -212,7 +227,7 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
-        <DslBlock metadata={message.metadata} />
+        <ToolCallBlock metadata={message.metadata} />
         {isUser ? (
           <div className="whitespace-pre-wrap">{message.content}</div>
         ) : (
@@ -273,7 +288,7 @@ function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps
     <div className="animate-message-fade flex gap-3 justify-start">
       <BotAvatar />
       <div className="max-w-[80%] rounded-xl bg-muted px-4 py-2.5 text-sm leading-relaxed">
-        <DslBlock metadata={message.metadata} />
+        <ToolCallBlock metadata={message.metadata} />
         <div className="relative">
           <MarkdownContent content={displayed} />
           {!isDone && (
@@ -302,13 +317,48 @@ function PendingUserBubble({ content, user }: PendingUserBubbleProps) {
   );
 }
 
-function ThinkingIndicator() {
+function ThinkingIndicator({ activeToolCall }: { activeToolCall: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="animate-message-fade flex gap-3 justify-start">
       <BotAvatar />
-      <div className="flex items-center gap-2 rounded-xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" />
-        <span>Thinking...</span>
+      <div className="rounded-xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+        {!activeToolCall ? (
+          <div className="flex items-center gap-2">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>Thinking...</span>
+          </div>
+        ) : (
+          <div>
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="flex items-center gap-2"
+            >
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Calling 1 tool</span>
+              <ChevronRight
+                className={cn(
+                  "size-3 transition-transform duration-200",
+                  expanded && "rotate-90"
+                )}
+              />
+            </button>
+            <div
+              className={cn(
+                "grid transition-all duration-200 ease-in-out",
+                expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+              )}
+            >
+              <div className="overflow-hidden">
+                <code className="mt-1.5 inline-block rounded bg-background/50 px-1.5 py-0.5 text-[11px] font-mono">
+                  {activeToolCall}
+                </code>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -335,14 +385,50 @@ function UserAvatar({ user }: { user: Doc<"users"> }) {
   );
 }
 
-function DslBlock({ metadata }: { metadata?: Message["metadata"] }) {
-  if (!metadata?.dslQuery) return null;
+function ToolCallBlock({ metadata }: { metadata?: Message["metadata"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const toolCalls = metadata?.toolCalls;
+
+  if (!toolCalls || toolCalls.length === 0) return null;
+
+  const count = toolCalls.length;
+  const label = `Called ${count} tool${count > 1 ? "s" : ""}`;
+
   return (
-    <div className="mb-2 rounded-md bg-background/50 p-2 font-mono text-xs">
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        DSL Query
+    <div className="mb-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="group flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <Wrench className="size-3" />
+        <span>{label}</span>
+        <ChevronRight
+          className={cn(
+            "size-3 transition-transform duration-200",
+            expanded && "rotate-90"
+          )}
+        />
+      </button>
+      <div
+        className={cn(
+          "grid transition-all duration-200 ease-in-out",
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="flex flex-wrap gap-1.5 pt-1.5">
+            {toolCalls.map((name, i) => (
+              <code
+                key={i}
+                className="rounded bg-background/50 px-1.5 py-0.5 text-[11px] font-mono"
+              >
+                {name}
+              </code>
+            ))}
+          </div>
+        </div>
       </div>
-      <pre className="whitespace-pre-wrap">{metadata.dslQuery}</pre>
     </div>
   );
 }
