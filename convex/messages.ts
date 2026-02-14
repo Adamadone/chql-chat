@@ -8,7 +8,6 @@ export const list = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return [];
 
-    // Verify the chat belongs to the user
     const chat = await ctx.db.get(args.chatId);
     if (!chat || chat.userId !== userId) return [];
 
@@ -37,7 +36,6 @@ export const send = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Verify the chat belongs to the user
     const chat = await ctx.db.get(args.chatId);
     if (!chat || chat.userId !== userId) throw new Error("Not authorized");
 

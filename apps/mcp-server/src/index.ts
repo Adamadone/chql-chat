@@ -5,23 +5,27 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 
 const CHYSTAT_API_BASE = "https://demo.chystat.com";
 const MEASUREMENTS_SEARCH_ENDPOINT = `${CHYSTAT_API_BASE}/api/v2/measurements/search`;
 
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_PAGE_NUMBER = 1;
+const MIN_PAGE_SIZE = 1;
+const MAX_PAGE_SIZE = 1000;
+const MIN_PAGE_NUMBER = 1;
 const DEFAULT_RESPONSE_FORMAT = "aqdef-json";
 
 const MCP_PORT = parseInt(process.env.MCP_PORT ?? "3001", 10);
 
-// ---------------------------------------------------------------------------
-// chy.stat API helpers
-// ---------------------------------------------------------------------------
+const MAX_SESSIONS = 100;
+const REQUEST_BODY_LIMIT = "1mb";
+
+// Rate limiting: sliding window per IP
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 60;
+const rateLimitMap = new Map<string, { timestamps: number[] }>();
 
 interface MeasurementsSearchRequest {
   query: string;
@@ -37,12 +41,6 @@ interface MeasurementsSearchResult {
   status: number;
 }
 
-/**
- * Call the chy.stat measurements search endpoint.
- *
- * The `query` field accepts a CHQL text string directly (e.g.
- * `K1001 = 'shaft' AND K2001 = 'diameter'`).
- */
 async function searchMeasurements(
   query: string,
   apiToken: string,
@@ -67,17 +65,10 @@ async function searchMeasurements(
     body: JSON.stringify(body),
   });
 
-  const data: unknown = await response.json().catch((jsonError: unknown) => {
-    console.error("Response is not valid JSON, falling back to text:", jsonError);
-    return response.text();
-  });
+  const data: unknown = await response.json().catch(() => response.text());
 
   return { data, status: response.status };
 }
-
-// ---------------------------------------------------------------------------
-// MCP Server & Tool Registration
-// ---------------------------------------------------------------------------
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -148,8 +139,14 @@ Example queries:
         };
       }
 
-      const resolvedPageSize = pageSize ?? DEFAULT_PAGE_SIZE;
-      const resolvedPageNumber = pageNumber ?? DEFAULT_PAGE_NUMBER;
+      const resolvedPageSize = Math.max(
+        MIN_PAGE_SIZE,
+        Math.min(MAX_PAGE_SIZE, Math.floor(pageSize ?? DEFAULT_PAGE_SIZE)),
+      );
+      const resolvedPageNumber = Math.max(
+        MIN_PAGE_NUMBER,
+        Math.floor(pageNumber ?? DEFAULT_PAGE_NUMBER),
+      );
 
       try {
         const result = await searchMeasurements(
@@ -199,45 +196,89 @@ Example queries:
   return server;
 }
 
-// ---------------------------------------------------------------------------
-// Transport: Streamable HTTP (default)
-// ---------------------------------------------------------------------------
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  let entry = rateLimitMap.get(ip);
+
+  if (!entry) {
+    entry = { timestamps: [] };
+    rateLimitMap.set(ip, entry);
+  }
+
+  entry.timestamps = entry.timestamps.filter(
+    (t) => now - t < RATE_LIMIT_WINDOW_MS,
+  );
+
+  if (entry.timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+
+  entry.timestamps.push(now);
+  return true;
+}
 
 async function startHttpTransport(): Promise<void> {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
 
-  // ---------------------------------------------------------------------------
-  // Auth middleware — protects /mcp endpoints with a shared Bearer token.
-  // If MCP_AUTH_TOKEN is not set, auth is disabled (local development).
-  // ---------------------------------------------------------------------------
+  app.disable("x-powered-by");
+
+  app.use((_req: Request, res: Response, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    next();
+  });
+
   const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
 
+  if (!MCP_AUTH_TOKEN && process.env.NODE_ENV === "production") {
+    console.error("FATAL: MCP_AUTH_TOKEN must be set in production.");
+    process.exit(1);
+  }
+
+  if (!MCP_AUTH_TOKEN) {
+    console.warn(
+      "WARNING: MCP_AUTH_TOKEN is not set. Auth is disabled (dev mode only).",
+    );
+  }
+
   app.use("/mcp", (req: Request, res: Response, next) => {
-    if (!MCP_AUTH_TOKEN) return next(); // No token configured → skip auth (dev mode)
+    if (!MCP_AUTH_TOKEN) return next();
 
     const authHeader = req.headers["authorization"];
-    if (authHeader !== `Bearer ${MCP_AUTH_TOKEN}`) {
+    if (!authHeader || !timingSafeEqual(authHeader, `Bearer ${MCP_AUTH_TOKEN}`)) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
     next();
   });
 
-  // Map of session ID → transport for stateful connections
+  app.use("/mcp", (req: Request, res: Response, next) => {
+    const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
+    if (!checkRateLimit(ip)) {
+      res.status(429).json({ error: "Too many requests" });
+      return;
+    }
+    next();
+  });
+
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
-  // Handle MCP protocol requests (POST)
   app.post("/mcp", async (req: Request, res: Response) => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
       let transport: StreamableHTTPServerTransport;
 
       if (sessionId && transports.has(sessionId)) {
-        // Reuse existing transport for the session
         transport = transports.get(sessionId)!;
       } else if (!sessionId) {
-        // New session — create a fresh transport + server
+        if (transports.size >= MAX_SESSIONS) {
+          res
+            .status(503)
+            .json({ error: "Server at capacity, try again later" });
+          return;
+        }
+
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
         });
@@ -255,7 +296,6 @@ async function startHttpTransport(): Promise<void> {
           transports.set(transport.sessionId, transport);
         }
       } else {
-        // Invalid session ID
         res.status(404).json({ error: "Session not found" });
         return;
       }
@@ -269,7 +309,6 @@ async function startHttpTransport(): Promise<void> {
     }
   });
 
-  // Handle SSE streams (GET) for server-initiated messages
   app.get("/mcp", async (req: Request, res: Response) => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -289,7 +328,6 @@ async function startHttpTransport(): Promise<void> {
     }
   });
 
-  // Handle session termination (DELETE)
   app.delete("/mcp", async (req: Request, res: Response) => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -311,9 +349,8 @@ async function startHttpTransport(): Promise<void> {
     }
   });
 
-  // Health check
   app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", sessions: transports.size });
+    res.json({ status: "ok" });
   });
 
   app.listen(MCP_PORT, () => {
@@ -321,9 +358,15 @@ async function startHttpTransport(): Promise<void> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Transport: stdio (for Claude Desktop / direct testing)
-// ---------------------------------------------------------------------------
+/**
+ * Constant-time string comparison to prevent timing attacks on auth tokens.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return cryptoTimingSafeEqual(bufA, bufB);
+}
 
 async function startStdioTransport(): Promise<void> {
   const server = createMcpServer();
@@ -331,10 +374,6 @@ async function startStdioTransport(): Promise<void> {
   await server.connect(transport);
   console.error("CHQL MCP Server running on stdio");
 }
-
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   const transport = process.argv.includes("--stdio") ? "stdio" : "http";

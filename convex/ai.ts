@@ -8,19 +8,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const MAX_TOOL_ROUNDS = 5;
 
-// ---------------------------------------------------------------------------
-// MCP Client helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Create an MCP client connected to the CHQL MCP server over Streamable HTTP.
- */
 async function createMCPClient(): Promise<Client> {
   const mcpUrl = process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp";
   const mcpAuthToken = process.env.MCP_AUTH_TOKEN;
@@ -48,9 +37,6 @@ async function createMCPClient(): Promise<Client> {
   return client;
 }
 
-/**
- * Safely close an MCP client, logging any errors.
- */
 async function closeMCPClient(client: Client): Promise<void> {
   try {
     await client.close();
@@ -59,10 +45,6 @@ async function closeMCPClient(client: Client): Promise<void> {
   }
 }
 
-/**
- * Fetch tool definitions from the MCP server and convert them to Anthropic's
- * tool format.
- */
 async function getMCPToolsAsAnthropicTools(
   mcpClient: Client,
 ): Promise<Anthropic.Messages.Tool[]> {
@@ -74,9 +56,6 @@ async function getMCPToolsAsAnthropicTools(
   }));
 }
 
-/**
- * Call an MCP tool by name and return the text result.
- */
 async function callMCPTool(
   mcpClient: Client,
   toolName: string,
@@ -84,7 +63,6 @@ async function callMCPTool(
 ): Promise<{ text: string; isError: boolean }> {
   const result = await mcpClient.callTool({ name: toolName, arguments: args });
 
-  // callTool may return a legacy { toolResult } shape or the standard { content } shape
   if (!("content" in result) || !Array.isArray(result.content)) {
     return { text: JSON.stringify(result), isError: false };
   }
@@ -96,10 +74,6 @@ async function callMCPTool(
 
   return { text, isError: Boolean(result.isError) };
 }
-
-// ---------------------------------------------------------------------------
-// System Prompt
-// ---------------------------------------------------------------------------
 
 function buildSystemPrompt(): string {
   return `You are a helpful assistant that helps users query industrial measurement data from the chy.stat system.
@@ -115,20 +89,12 @@ IMPORTANT SECURITY RULES:
 If the user's request is conversational (greeting, clarification, etc.), respond naturally without calling a tool.`;
 }
 
-// ---------------------------------------------------------------------------
-// LLM + Tool Use loop
-// ---------------------------------------------------------------------------
-
 interface ToolUseMetadata {
   dslQuery?: string;
   apiResponse?: string;
   error?: string;
 }
 
-/**
- * Run the LLM with tool use support. Handles the multi-turn loop where Claude
- * may request tool calls, which are executed via the MCP server.
- */
 async function runLLMWithTools(
   systemPrompt: string,
   chatHistory: Array<{ role: "user" | "assistant"; content: string }>,
@@ -140,7 +106,6 @@ async function runLLMWithTools(
 
   const anthropic = new Anthropic({ apiKey });
 
-  // Build the initial message list from chat history
   const messages: Anthropic.Messages.MessageParam[] = chatHistory.map((m) => ({
     role: m.role,
     content: m.content,
@@ -157,7 +122,6 @@ async function runLLMWithTools(
       messages,
     });
 
-    // If the model stopped without requesting a tool, extract the final text
     if (response.stop_reason !== "tool_use") {
       const text = response.content
         .filter(
@@ -170,16 +134,13 @@ async function runLLMWithTools(
       return { response: text, metadata };
     }
 
-    // The model wants to use tools — process each tool_use block
     const toolUseBlocks = response.content.filter(
       (block): block is Anthropic.Messages.ToolUseBlock =>
         block.type === "tool_use",
     );
 
-    // Add the assistant's response (with tool_use blocks) to messages
     messages.push({ role: "assistant", content: response.content });
 
-    // Execute each tool call and collect results
     const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
 
     for (const toolUse of toolUseBlocks) {
@@ -193,7 +154,6 @@ async function runLLMWithTools(
         try {
           const toolArgs = toolUse.input as Record<string, unknown>;
 
-          // Track the CHQL query in metadata
           if (toolUse.name === "search_measurements" && toolArgs.query) {
             metadata = {
               ...metadata,
@@ -209,7 +169,6 @@ async function runLLMWithTools(
           resultText = result.text;
           isError = result.isError;
 
-          // Track the API response in metadata
           if (toolUse.name === "search_measurements") {
             metadata = {
               ...metadata,
@@ -231,21 +190,15 @@ async function runLLMWithTools(
       });
     }
 
-    // Add tool results as a user message and loop
     messages.push({ role: "user", content: toolResults });
   }
 
-  // Safety: if we exhausted all rounds, return whatever we have
   return {
     response:
       "I attempted to retrieve data but exceeded the maximum number of tool call attempts. Please try rephrasing your query.",
     metadata,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Convex Actions
-// ---------------------------------------------------------------------------
 
 export const processMessage = action({
   args: {
@@ -264,14 +217,12 @@ export const processMessage = action({
       return { success: false, error: "Chat not found or not authorized" };
 
     try {
-      // 1. Store user message
       await ctx.runMutation(api.messages.send, {
         chatId: args.chatId,
         content: args.userMessage,
         role: "user",
       });
 
-      // 2. Get chat history
       const messages = await ctx.runQuery(api.messages.list, {
         chatId: args.chatId,
       });
@@ -284,7 +235,6 @@ export const processMessage = action({
         content: m.content,
       }));
 
-      // 3. Connect to MCP server & get tools
       let mcpClient: Client | null = null;
       let tools: Anthropic.Messages.Tool[] = [];
 
@@ -297,8 +247,6 @@ export const processMessage = action({
             "Connected to MCP server but failed to list tools:",
             toolListError,
           );
-          // Connection succeeded but tool listing failed — close the broken
-          // client so we don't pass a half-working client to the LLM loop.
           await closeMCPClient(mcpClient);
           mcpClient = null;
         }
@@ -309,7 +257,6 @@ export const processMessage = action({
         );
       }
 
-      // 4. Run LLM with tool use
       let finalResponse: string;
       let metadata: ToolUseMetadata | undefined;
       try {
@@ -323,13 +270,11 @@ export const processMessage = action({
         finalResponse = result.response;
         metadata = result.metadata;
       } finally {
-        // 5. Clean up MCP connection (always, even if LLM call throws)
         if (mcpClient) {
           await closeMCPClient(mcpClient);
         }
       }
 
-      // 6. Store assistant response
       await ctx.runMutation(api.messages.send, {
         chatId: args.chatId,
         content: finalResponse,
