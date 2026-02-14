@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "dotenvx run -- concurrently --names web,convex,mcp --prefix-colors cyan,yellow,magenta \"npm run dev -w apps/web\" \"npm run convex:dev\" \"npm run mcp:dev:run\"",
+    "dev": "dotenvx run -- concurrently --names web,convex --prefix-colors cyan,yellow \"npm run dev -w apps/web\" \"npm run convex:dev\"",
     "dev:web": "dotenvx run -- npm run dev -w apps/web",
     "build": "dotenvx run -- npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
