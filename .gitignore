@@ -43,4 +43,7 @@ coverage/
 # Docker
 .docker/
 
+# MCP server build outputs
+apps/mcp-server/build/
+
 .env.keys

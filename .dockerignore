@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Environment secrets (NEVER send to Docker daemon)
+.env
+.env.keys
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Dependencies (reinstalled in container)
+node_modules
+
+# Build outputs (rebuilt in container)
+.next
+dist
+out
+apps/mcp-server/build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs (not needed in containers)
+docs
+*.md
+
+# CI/CD
+.github
+
+# Docker (prevent recursive context)
+docker-compose.yml
+
+# Convex local
+.convex
+
+# Coverage
+coverage

@@ -1,0 +1,26 @@
+{
+  "name": "@chql/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server exposing a CHQL measurement search tool for the chy.stat API",
+  "bin": {
+    "chql-mcp-server": "./build/index.js"
+  },
+  "main": "./build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^5.2.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

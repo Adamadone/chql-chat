@@ -17,7 +17,10 @@
     "docker:build": "docker-compose build",
     "docker:logs": "docker-compose logs -f",
     "convex:dev": "dotenvx run -- npx convex dev",
-    "convex:deploy": "dotenvx run -- npx convex deploy"
+    "convex:deploy": "dotenvx run -- npx convex deploy",
+    "mcp:build": "npm run build -w apps/mcp-server",
+    "mcp:dev": "npm run dev -w apps/mcp-server",
+    "mcp:start": "dotenvx run -- npm run start -w apps/mcp-server"
   },
   "keywords": [
     "dsl",
@@ -42,6 +45,7 @@
     "@anthropic-ai/sdk": "^0.74.0",
     "@auth/core": "^0.37.4",
     "@convex-dev/auth": "^0.0.90",
-    "@convex-dev/migrations": "^0.3.1"
+    "@convex-dev/migrations": "^0.3.1",
+    "@modelcontextprotocol/sdk": "^1.26.0"
   }
 }

@@ -3,7 +3,11 @@
 
 - **Language:** TypeScript (backend & frontend)
 - **Database:** Convex
-- **Authentication:** Auth.js
+- **Authentication:** Convex Auth (`@convex-dev/auth`) with GitHub OAuth
+- **LLM:** Anthropic Claude (claude-opus-4-6) with native tool use API
+- **MCP:** Model Context Protocol — TypeScript SDK, Streamable HTTP transport
+- **DSL:** CHQL (chy.stat Query Language) — text-based grammar defined in ANTLR4
+- **Target API:** chy.stat v2 measurements search (`POST /api/v2/measurements/search`)
 - **Containerization:** Docker (backend & frontend)
 - **UI:** ShadCN
 
@@ -12,9 +16,12 @@
 A ChatGPT-style web application where:
 - User logs in and sees chat history
 - User writes messages in natural language
-- Backend (MCP client) includes a system prompt with DSL definition
-- LLM converts natural language to domain-specific query language
-- MCP server exposes a single tool that calls an external API using the DSL query
+- Convex backend (MCP client) connects to an MCP server over Streamable HTTP
+- MCP server exposes a single tool (`search_measurements`) to query the chy.stat API
+- Convex fetches tool definitions from the MCP server and passes them to Claude
+- Claude uses its native tool use API to decide when to generate CHQL queries
+- The MCP server receives CHQL text, forwards it to the chy.stat API, and returns results
+- Claude incorporates the results into a natural-language response
 - Results are displayed and chat history is stored in Convex
 
 ---
@@ -35,12 +42,20 @@ Define in writing:
 
 **Deliverable:** DSL spec + 20 example pairs
 
-Keep DSL small and machine-validated. Choose either:
-- **JSON DSL** — Easy validation with JSON Schema / zod
-- **Text grammar** — Validate with a parser
+**Decision:** Text grammar (CHQL) — defined via ANTLR4 in `docs/antlr4/`.
+
+The DSL is CHQL (chy.stat Query Language), a text-based query language for filtering
+measurement data. The grammar supports:
+- K-key identifiers (K1001, K2001, K0001, etc.)
+- Comparison operators: `=`, `<`, `<=`, `>`, `>=`, `LIKE`, `=~`
+- Logical operators: `AND`, `OR`, `NOT`, parentheses
+- Special criteria: `ALL`, `IS NULL`, `IN (...)`, `HAS ALARM`, `HAS NO ALARM`, `HAS MARK`
+- Sub-query matching: `ANY VALUE MATCHES (...)`, `ALL VALUES MATCHES (...)`
+
+The chy.stat API accepts CHQL text directly in the `query` field of the request body.
 
 Tasks:
-- Produce ~20 NL → DSL examples with expected outputs
+- Produce ~20 NL → CHQL examples with expected outputs
 - Define an "allowed operations" allowlist (filters, sort, aggregation, limits)
 
 > This deliverable is critical — it anchors both implementation and evaluation.
@@ -51,18 +66,21 @@ Tasks:
 
 **Deliverable:** Architecture diagram + threat table
 
-### Architecture Diagram
+### Architecture Diagram (Implemented)
 
-Should explicitly show:
 ```
-┌─────────────┐     ┌─────────────────────────┐     ┌─────────────┐     ┌──────────────┐
-│ Frontend UI │ ──▶ │ Backend (LLM + MCP Client)│ ──▶ │ MCP Server  │ ──▶ │ External API │
-└─────────────┘     └─────────────────────────┘     └─────────────┘     └──────────────┘
-                                │
-                                ▼
-                        ┌──────────────┐
-                        │   Convex DB  │
-                        └──────────────┘
+┌─────────────┐     ┌──────────────────────────────┐     ┌────────────────────┐     ┌──────────────┐
+│ Next.js App │ ──▶ │ Convex Backend                │     │ MCP Server         │     │ chy.stat     │
+│ (Frontend)  │     │ (LLM + MCP Client)           │────▶│ (apps/mcp-server)  │────▶│ API v2       │
+└─────────────┘     │                              │ HTTP│ Streamable HTTP    │POST │ /measurements│
+                    │ - Anthropic Claude tool use  │     │ Express on :3001   │     │ /search      │
+                    │ - MCP SDK client transport   │     └────────────────────┘     └──────────────┘
+                    └──────────────┬───────────────┘
+                                   │
+                                   ▼
+                           ┌──────────────┐
+                           │   Convex DB  │
+                           └──────────────┘
 ```
 
 ### Threat Model Table
@@ -82,20 +100,24 @@ Reference: OWASP agent security guidance
 
 **Deliverable:** Working end-to-end demo
 
-Goal: Complete "happy path" flow:
+Goal: Complete "happy path" flow (implemented in `convex/ai.ts` + `apps/mcp-server/`):
 
-1. User logs in (Auth.js)
-2. User sends message
-3. Backend calls LLM
-4. LLM returns DSL
-5. Backend validates DSL
-6. Backend calls MCP tool
-7. Tool calls public API and returns structured data
-8. UI renders response + stores chat history in Convex
+1. User logs in (Convex Auth with GitHub OAuth) -- **done**
+2. User sends message -- **done** (Next.js frontend + Convex mutation)
+3. Convex action connects to MCP server via Streamable HTTP -- **done**
+4. Convex fetches tool definitions from MCP server (`listTools`) -- **done**
+5. Convex calls Anthropic Claude with tool definitions -- **done** (native tool use API)
+6. Claude generates CHQL and requests `search_measurements` tool -- **done**
+7. Convex calls MCP tool via `callTool` -- **done**
+8. MCP server calls chy.stat API with CHQL query, returns results -- **done**
+9. Claude receives tool result, generates user-facing response -- **done**
+10. UI renders response + stores chat history in Convex -- **done**
 
-### Resources
-- Auth.js and Convex both have explicit TS best practices and integration guidance
-- MCP has official SDKs (including TS) and a "build a server" walkthrough
+### Key implementation details
+- Multi-turn tool use loop (max 5 rounds) in `runLLMWithTools()`
+- Graceful degradation: if MCP server is down, LLM responds without tools
+- Metadata tracking: CHQL query and API response stored in message metadata
+- Tool definitions fetched dynamically from MCP server (not hardcoded)
 
 ---
 

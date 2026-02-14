@@ -1,0 +1,39 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+
+            cd /opt/chql-chat
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Rebuild and restart containers (--build forces rebuild)
+            docker compose build --no-cache
+            docker compose up -d
+
+            # Clean up old images
+            docker image prune -f
+
+            # Verify health
+            sleep 10
+            curl -sf http://localhost:3001/health || (echo "MCP server health check failed" && exit 1)
+            curl -sf http://localhost:3000 > /dev/null || (echo "Web app health check failed" && exit 1)
+
+            echo "Deployment successful"

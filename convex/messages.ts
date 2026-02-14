@@ -34,6 +34,13 @@ export const send = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // Verify the chat belongs to the user
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
     await ctx.db.patch(args.chatId, { updatedAt: Date.now() });
 
     return await ctx.db.insert("messages", {

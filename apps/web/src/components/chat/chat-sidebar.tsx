@@ -80,8 +80,12 @@ export function ChatSidebar({
       onSelectChat(emptyChat._id);
       return;
     }
-    const chatId = await createChat({});
-    onSelectChat(chatId);
+    try {
+      const chatId = await createChat({});
+      onSelectChat(chatId);
+    } catch (error) {
+      console.error("Failed to create chat:", error);
+    }
   };
 
   const handleDeleteChat = async (
@@ -89,9 +93,13 @@ export function ChatSidebar({
     chatId: Id<"chats">
   ) => {
     e.stopPropagation();
-    await removeChat({ chatId });
-    if (activeChatId === chatId) {
-      onSelectChat(null);
+    try {
+      await removeChat({ chatId });
+      if (activeChatId === chatId) {
+        onSelectChat(null);
+      }
+    } catch (error) {
+      console.error("Failed to delete chat:", error);
     }
   };
 

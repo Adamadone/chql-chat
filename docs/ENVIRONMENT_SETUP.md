@@ -184,17 +184,20 @@ npx dotenvx get NEXT_PUBLIC_CONVEX_URL
 
 ## Current Environment Variables
 
-| Variable | Purpose | Required |
-|----------|---------|----------|
-| `CONVEX_DEPLOYMENT` | Convex deployment ID | Yes |
-| `NEXT_PUBLIC_CONVEX_URL` | Convex API endpoint | Yes |
-| `CONVEX_SITE_URL` | Convex HTTP actions URL | Yes |
-| `AUTH_SECRET` | Auth.js encryption secret | Yes |
-| `AUTH_URL` | Auth.js callback URL | Yes |
-| `GITHUB_ID` | GitHub OAuth client ID | Yes |
-| `GITHUB_SECRET` | GitHub OAuth client secret | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic/Claude API key | Optional |
-| `OPENAI_API_KEY` | OpenAI API key | Optional |
+| Variable | Purpose | Used By | Required |
+|----------|---------|---------|----------|
+| `CONVEX_DEPLOYMENT` | Convex deployment ID | Convex | Yes |
+| `NEXT_PUBLIC_CONVEX_URL` | Convex API endpoint | Next.js | Yes |
+| `CONVEX_SITE_URL` | Convex HTTP actions URL | Convex | Yes |
+| `AUTH_SECRET` | Auth encryption secret | Convex Auth | Yes |
+| `AUTH_URL` | Auth callback URL | Convex Auth | Yes |
+| `GITHUB_ID` | GitHub OAuth client ID | Convex Auth | Yes |
+| `GITHUB_SECRET` | GitHub OAuth client secret | Convex Auth | Yes |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | Convex actions | Yes (for AI) |
+| `CHYSTAT_API_TOKEN` | chy.stat API Bearer token | MCP server | Yes (for queries) |
+| `MCP_SERVER_URL` | MCP server endpoint | Convex actions | No (default: `http://localhost:3001/mcp`) |
+| `MCP_AUTH_TOKEN` | Shared secret for MCP auth | Convex actions + MCP server | Yes (production) |
+| `MCP_PORT` | MCP server HTTP port | MCP server | No (default: `3001`) |
 
 ---
 

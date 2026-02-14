@@ -36,13 +36,16 @@ Bachelor's thesis project focusing on secure LLM integration and prompt injectio
 ```
 chql-chat/
 ├── apps/
-│   └── web/                    # Next.js application
-│       ├── src/
-│       │   ├── app/            # Next.js App Router
-│       │   ├── components/     # React components
-│       │   ├── lib/            # Utilities
-│       │   ├── providers/      # Context providers
-│       │   └── auth.ts         # Auth.js configuration
+│   ├── web/                    # Next.js application
+│   │   ├── src/
+│   │   │   ├── app/            # Next.js App Router
+│   │   │   ├── components/     # React components
+│   │   │   ├── lib/            # Utilities
+│   │   │   ├── providers/      # Context providers
+│   │   │   └── auth.ts         # Auth configuration
+│   │   └── package.json
+│   └── mcp-server/             # MCP Server (Streamable HTTP)
+│       ├── src/index.ts        # Server + tool definitions
 │       └── package.json
 ├── convex/                     # Convex backend (at root)
 │   ├── schema.ts               # Database schema
@@ -53,7 +56,8 @@ chql-chat/
 ├── packages/
 │   └── shared/                 # Shared types/utilities
 ├── docker/
-│   └── Dockerfile.web          # Production container
+│   ├── Dockerfile.web          # Next.js production container
+│   └── Dockerfile.mcp          # MCP server production container
 ├── docs/                       # Project documentation
 ├── .env.local                  # Local environment variables (git-ignored)
 └── package.json                # Root package.json
@@ -63,9 +67,9 @@ chql-chat/
 
 - **Frontend**: Next.js 16 + React 19 + Tailwind CSS + ShadCN UI
 - **Backend**: Convex (serverless functions + database)
-- **Authentication**: Auth.js v5 (GitHub OAuth)
-- **AI Integration**: LLM via Convex Actions + MCP protocol
-- **DSL**: JSON validated with zod
+- **Authentication**: Convex Auth (`@convex-dev/auth`) with GitHub OAuth
+- **AI Integration**: Anthropic Claude (tool use API) + MCP protocol
+- **DSL**: CHQL (chy.stat Query Language) — text-based, defined by ANTLR4 grammar
 - **Environment Security**: dotenvx (encrypted environment variables)
 - **Containerization**: Docker
 
@@ -137,7 +141,7 @@ The project follows a 5-step plan:
 4. **Vertical Slice Prototype** - End-to-end happy path demo
 5. **Prompt-Injection Defenses** - Defense checklist + test suite
 
-Current status: **Step 1** (infrastructure complete)
+Current status: **Step 4** (vertical slice prototype complete)
 
 ## Security Focus
 
@@ -151,6 +155,7 @@ See `convex/ai.ts` for implementation details.
 
 ## Documentation
 
+- `docs/DEPLOYMENT.md` - **Production deployment guide (Hetzner + Docker + Caddy + CI/CD)**
 - `docs/ENVIRONMENT_SETUP.md` - **Environment variables & dotenvx encryption guide**
 - `docs/AUTHENTICATION_FLOW.md` - **How authentication works step-by-step**
 - `docs/CLAUDE.md` - Guidance for Claude Code
