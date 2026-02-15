@@ -35,7 +35,7 @@ export function HeroSection() {
           </div>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
             Natural Language to{" "}
-            <span className="hero-gradient-text">DSL Queries</span>
+            <span className="hero-gradient-text">DSL queries</span>
           </h1>
           <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
             Convert plain language into structured domain-specific queries using

@@ -89,6 +89,7 @@ export function ChatSidebar({
     id: Id<"chats">;
     title: string;
   } | null>(null);
+  const [displayedDeleteTitle, setDisplayedDeleteTitle] = useState("");
 
   const handleNewChat = async () => {
     if (emptyChat) {
@@ -110,6 +111,7 @@ export function ChatSidebar({
   ) => {
     e.stopPropagation();
     setDeleteTarget({ id: chatId, title });
+    setDisplayedDeleteTitle(title);
   };
 
   const handleConfirmDelete = async () => {
@@ -137,7 +139,7 @@ export function ChatSidebar({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex h-full w-64 flex-col border-r border-border/60 bg-card/50 dark:bg-card/30">
+      <div className="flex h-full w-72 flex-col border-r border-border/60 bg-card/50 dark:bg-card/30">
         {/* Header */}
         <div className="flex h-14 items-center justify-between border-b border-border/60 px-4">
           <div className="flex items-center gap-2.5 font-semibold text-sm">
@@ -244,7 +246,7 @@ export function ChatSidebar({
             <AlertDialogDescription>
               This will permanently delete{" "}
               <span className="font-medium text-foreground">
-                {deleteTarget?.title ?? "this chat"}
+                {displayedDeleteTitle || "this chat"}
               </span>{" "}
               and all its messages. This action cannot be undone.
             </AlertDialogDescription>
@@ -283,7 +285,7 @@ function ChatListItem({
     <button
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-all duration-150",
+        "group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-all duration-150",
         isActive
           ? "bg-primary/10 text-primary font-medium"
           : "text-foreground/80 hover:bg-accent hover:text-foreground"
@@ -310,7 +312,7 @@ function ChatListItem({
             }}
             className={cn(
               "flex size-6 shrink-0 items-center justify-center rounded-md transition-all duration-150",
-              "opacity-0 group-hover:opacity-100",
+              "opacity-0 group-hover:opacity-70 hover:!opacity-100",
               "hover:bg-destructive/10 hover:text-destructive"
             )}
           >
