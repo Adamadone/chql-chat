@@ -20,18 +20,6 @@ interface PendingMessage {
   key: string;
 }
 
-function MessagesSkeleton() {
-  return (
-    <div className="min-h-0 flex-1 px-4 py-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="flex w-full max-w-md flex-col gap-2">
-          <Skeleton className="h-20 w-4xl" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const messages = useQuery(
     api.messages.list,
@@ -141,7 +129,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {isLoading ? (
-        <MessagesSkeleton />
+        <div className="min-h-0 flex-1 px-4 py-6"/>
       ) : (
         <ChatMessages
           messages={messages}
