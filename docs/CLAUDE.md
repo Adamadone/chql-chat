@@ -202,6 +202,157 @@ This project emphasizes prompt injection resistance with three defense layers:
 - Rate limiting on tool calls (TODO)
 - Logging/auditing of tool invocations (TODO)
 
+## UI Design Guidelines (Based on Refactoring UI)
+
+When building or modifying UI components, follow these principles. They are distilled from the Refactoring UI methodology and should be applied consistently across the entire frontend.
+
+### Hierarchy is Everything
+- **Not all elements are equal.** Every screen should have a clear visual hierarchy — primary, secondary, and tertiary content must be visually distinct.
+- **Size isn't everything.** Use font weight (400/500 for normal, 600/700 for emphasis) and color (dark for primary, grey for secondary, lighter grey for tertiary) to create hierarchy — not just font size.
+- **Emphasize by de-emphasizing.** If an element doesn't stand out enough, try de-emphasizing the elements around it instead of making the target louder.
+- **Labels are a last resort.** Prefer combining label + value into a single readable phrase (e.g., "3 bedrooms" instead of "Bedrooms: 3"). When labels are needed, de-emphasize them — the data is what matters.
+- **Semantics are secondary for buttons.** Primary actions get solid, high-contrast backgrounds. Secondary actions get outline/lower-contrast styles. Tertiary actions are styled like links. Destructive actions are NOT automatically big/red — reserve bold destructive styling for confirmation steps.
+- **Don't use grey text on colored backgrounds.** Instead, hand-pick a color with the same hue as the background and adjust saturation/lightness.
+
+### Layout and Spacing
+- **Start with too much white space**, then remove until satisfied. White space should be *removed*, not *added*.
+- **Use a spacing/sizing system.** Stick to a constrained scale (e.g., 4, 8, 12, 16, 24, 32, 48, 64, 96, 128). No two adjacent values should be closer than ~25% apart.
+- **Don't fill the whole screen.** If content only needs 600px, use 600px. Don't stretch things just because space is available.
+- **Avoid ambiguous spacing.** When using spacing to group elements, ensure there is more space *between* groups than *within* groups. Labels should be closer to their associated inputs than to the next field.
+- **Grids are overrated.** Sidebars and fixed-width elements should use fixed widths, not percentage-based grid columns. Use `max-width` for content that shouldn't grow beyond a certain size.
+- **Relative sizing doesn't scale.** Large elements should shrink faster than small elements on smaller screens. Don't use a single ratio (like `2.5em`) across breakpoints — tune independently.
+
+### Typography
+- **Establish a type scale.** Use a hand-crafted set of font sizes (e.g., 12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72). Don't pick arbitrary pixel values.
+- **Use px or rem units** — avoid `em` for font sizes (nesting breaks the scale).
+- **Keep line length 45-75 characters** (20-35em) for readable paragraphs.
+- **Line-height is proportional.** Small text needs more line-height (~1.5); large headings need less (~1-1.25). Line-height and font size are inversely proportional.
+- **Align baselines, not centers** when mixing font sizes on the same line.
+- **Left-align text** by default. Center-align only for short, independent blocks (max 2-3 lines). Right-align numbers in tables.
+- **Letter-spacing:** Tighten for large headings; increase for ALL-CAPS text.
+- **Font weights:** Stick to two weights for UI — normal (400/500) and bold (600/700). Avoid weights under 400 for UI text.
+- **Not every link needs a color.** In link-heavy interfaces, use heavier font weight or darker color instead. Reserve underline/color change for hover on ancillary links.
+
+### Color
+- **Use HSL over hex** for reasoning about color relationships (hue, saturation, lightness).
+- **You need more colors than you think.** Build a palette with:
+  - 8-10 shades of grey (starting from near-black, not true black, up to white)
+  - 5-10 shades of each primary color
+  - 5-10 shades of accent/semantic colors (red, yellow, green, blue, etc.)
+- **Define shades up front.** Pick base (500), darkest (900), and lightest (100), then fill in gaps. Use a 9-shade scale (100-900).
+- **Increase saturation** as lightness moves away from 50% — otherwise light/dark shades look washed out.
+- **Greys don't have to be grey.** Saturate them slightly with blue (cool) or yellow/orange (warm) for temperature.
+- **Don't rely on color alone.** Always pair color with another indicator (icons, text, patterns) for accessibility.
+- **Accessible contrast:** 4.5:1 minimum for normal text, 3:1 for large text. Flip contrast (dark text on light colored background) when colored backgrounds would be too attention-grabbing.
+
+### Depth and Shadows
+- **Emulate a light source from above.** Raised elements: lighter top edge, small dark shadow below. Inset elements: darker top edge (shadow), lighter bottom edge.
+- **Use shadows to convey elevation.** Define 5 shadow levels: small (buttons), medium (dropdowns), large (modals). Bigger shadow = closer to user = more attention.
+- **Two-part shadows:** A larger soft shadow (direct light) + a tighter dark shadow (ambient occlusion). Reduce the tight shadow at higher elevations.
+- **Flat designs can still have depth** — use lighter colors for raised elements, darker for inset. Solid shadows (no blur) work for flat aesthetics.
+- **Overlap elements to create layers** — offset cards across background transitions, overlap controls on edges.
+
+### Working with Images
+- **Use good photos.** Never use placeholder images expecting to swap in phone photos later.
+- **Control shape and size** of user-uploaded images — use fixed containers with `object-fit: cover`.
+- **Don't scale icons** beyond their intended size. If you need large icons, enclose small ones in a shaped background.
+- **Prevent background bleed** on user images with a subtle inner box-shadow, not a border.
+
+### Finishing Touches
+- **Supercharge the defaults.** Replace bullets with icons, style checkboxes/radios with brand colors, promote quotes into visual elements.
+- **Add color with accent borders** — top of cards, side of alerts, under headlines, active nav items, top of the layout.
+- **Decorate backgrounds** with subtle color changes, gradients (max 30deg hue difference), or low-contrast repeating patterns.
+- **Don't overlook empty states.** Design them as a first-class experience with illustrations and clear calls-to-action. Hide filters/tabs when there's no content.
+- **Use fewer borders.** Prefer box shadows, different background colors, or extra spacing to create separation.
+- **Think outside the box.** Dropdowns can have columns and icons. Tables can combine related data into hierarchical cells. Radio buttons can be selectable cards.
+
+### Design Personality (for this project)
+- **Tone:** Professional but approachable — this is a data/analytics tool, not a social app.
+- **Border radius:** Base `0.625rem` (10px). Use the `--radius-*` scale (sm through 4xl).
+- **Font:** Geist Sans (sans-serif) for UI, Geist Mono for code/queries.
+- **Primary color:** Teal/Cyan (`--teal-500` base). Fresh, technical, distinctive.
+- **Neutrals:** Warm greys with a slight blue tint (hue ~250 in OKLCH) — not pure grey.
+- **Language:** Clear and helpful, not overly casual or stiff.
+
+### Concrete Design System Tokens
+
+All tokens are defined in `apps/web/src/app/globals.css`.
+
+#### Color Palette
+
+**Teal primary (9 shades, `--teal-50` to `--teal-900`):**
+| Token | OKLCH | Usage |
+|---|---|---|
+| `--teal-50` | `oklch(0.97 0.02 180)` | Tinted backgrounds, badges |
+| `--teal-100` | `oklch(0.93 0.04 180)` | Light hover backgrounds |
+| `--teal-200` | `oklch(0.87 0.08 178)` | Accent text on dark, subtle borders |
+| `--teal-300` | `oklch(0.78 0.12 177)` | Hero gradient endpoint (dark mode) |
+| `--teal-400` | `oklch(0.68 0.15 176)` | Dark mode primary, links |
+| `--teal-500` | `oklch(0.58 0.14 175)` | Light mode base, ring color, hero gradient |
+| `--teal-600` | `oklch(0.50 0.13 175)` | Light mode primary (buttons) |
+| `--teal-700` | `oklch(0.42 0.11 176)` | Active/pressed states |
+| `--teal-800` | `oklch(0.35 0.09 177)` | Text on light tinted backgrounds |
+| `--teal-900` | `oklch(0.28 0.07 178)` | Darkest — headings on tinted backgrounds |
+
+**Neutral greys (11 shades, `--neutral-50` to `--neutral-950`):**
+Warm greys with slight blue tint (hue 250). `--neutral-950` is the darkest (dark mode background), `--neutral-50` is lightest (light mode background).
+
+**Semantic status colors (light / dark):**
+| Token | Light | Dark | Usage |
+|---|---|---|---|
+| `--destructive` | Red `oklch(0.577 0.245 27)` | Brighter red `oklch(0.704 0.191 22)` | Errors, delete actions |
+| `--success` | Green `oklch(0.55 0.16 145)` | Brighter green `oklch(0.65 0.18 145)` | Success states |
+| `--warning` | Amber `oklch(0.75 0.16 75)` | Brighter amber `oklch(0.80 0.15 75)` | Warnings |
+| `--info` | Blue `oklch(0.55 0.18 250)` | Brighter blue `oklch(0.65 0.18 250)` | Informational |
+
+#### Shadow Elevation System (5 levels)
+
+Each shadow uses two parts (direct light + ambient occlusion per Refactoring UI):
+
+| Level | CSS Variable | Use Case |
+|---|---|---|
+| `--shadow-xs` | `0 1px 2px ...` | Subtle lift — buttons, badges |
+| `--shadow-sm` | `0 1px 3px ... + 0 1px 2px ...` | Cards, inputs |
+| `--shadow-md` | `0 4px 6px ... + 0 2px 4px ...` | Dropdowns, popovers |
+| `--shadow-lg` | `0 10px 15px ... + 0 4px 6px ...` | Floating panels, sheets |
+| `--shadow-xl` | `0 20px 25px ... + 0 8px 10px ...` | Modals, dialogs |
+
+Dark mode uses higher opacity values since shadows need more contrast on dark backgrounds.
+
+#### Typography
+
+- **Font family:** `--font-geist-sans` (UI), `--font-geist-mono` (code)
+- **Font sizes:** Use Tailwind's default type scale (`text-xs` through `text-6xl`)
+- **Font weights:** 400/500 for body, 600/700 for emphasis. Never use weights < 400.
+- **Line-height:** Tailwind defaults. Use `leading-relaxed` (1.625) for body text, `leading-tight` (1.25) or `leading-none` (1) for headings.
+
+#### Spacing
+
+Use Tailwind v4 default scale (4px base): `1`=4px, `2`=8px, `3`=12px, `4`=16px, `5`=20px, `6`=24px, `8`=32px, `10`=40px, `12`=48px, `16`=64px, `20`=80px, `24`=96px.
+
+#### Border Radius
+
+Base `--radius: 0.625rem` (10px). Scale: `sm` (6px), `md` (8px), `lg` (10px), `xl` (14px), `2xl` (18px), `3xl` (22px), `4xl` (26px).
+
+#### Dark Mode
+
+- **Provider:** `next-themes` with `attribute="class"`, `defaultTheme="system"`, `enableSystem`.
+- **Toggle:** `<ThemeToggle />` component cycles light -> dark -> system.
+- **Component:** `apps/web/src/components/ui/theme-toggle.tsx`
+- **Provider:** `apps/web/src/providers/theme-provider.tsx`
+
+### Quick Checklist Before Shipping UI
+1. Is there a clear visual hierarchy? (Can you tell what matters most at a glance?)
+2. Are spacing values from the Tailwind scale? (No arbitrary pixel values)
+3. Are font sizes from the Tailwind type scale?
+4. Is there enough contrast for accessibility? (4.5:1 normal text, 3:1 large text)
+5. Does the empty state look good?
+6. Are borders used sparingly? (Could spacing or background color work instead?)
+7. Does it work at different screen sizes?
+8. Are semantic colors used correctly? (`destructive` for errors, `success` for confirmations, `warning` for cautions, `info` for notices)
+9. Are shadows from the 5-level elevation system? (Not arbitrary box-shadow values)
+10. Does the component look good in both light and dark mode?
+
 ## Key References
 
 - MCP Documentation: https://modelcontextprotocol.io/docs/getting-started/intro
@@ -209,3 +360,4 @@ This project emphasizes prompt injection resistance with three defense layers:
 - Convex Documentation: https://docs.convex.dev
 - Convex Auth Documentation: https://labs.convex.dev/auth
 - OWASP agent security guidance for threat modeling
+- Refactoring UI (design principles): `docs/RefactoringUI.md`

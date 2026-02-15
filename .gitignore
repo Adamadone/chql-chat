@@ -35,3 +35,4 @@ coverage/
 .docker/
 
 apps/mcp-server/build/
+docs/RefactoringUI.md

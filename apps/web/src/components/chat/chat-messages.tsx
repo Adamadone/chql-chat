@@ -149,7 +149,7 @@ export function ChatMessages({
   return (
     <div className="relative min-h-0 flex-1">
       <ScrollArea className="h-full" ref={scrollAreaRef}>
-        <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+        <div className="mx-auto max-w-4xl space-y-5 px-4 py-6">
           {messages.map((message) => {
             if (message.role === "assistant" && message._id === typewriterId) {
               return (
@@ -180,16 +180,25 @@ export function ChatMessages({
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
-      {showJumpButton && (
+
+      {/* Jump to bottom — animated in/out */}
+      <div
+        className={cn(
+          "absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-all duration-200",
+          showJumpButton
+            ? "translate-y-0 opacity-100"
+            : "translate-y-2 opacity-0 pointer-events-none"
+        )}
+      >
         <Button
           variant="outline"
           size="icon"
-          className="absolute bottom-3 left-1/2 z-10 size-8 -translate-x-1/2 rounded-full shadow-md"
+          className="size-8 rounded-full shadow-md bg-card"
           onClick={handleJumpToBottom}
         >
           <ArrowDown className="size-4" />
         </Button>
-      )}
+      </div>
     </div>
   );
 }
@@ -204,9 +213,9 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
 
   if (message.interrupted) {
     return (
-      <div className="flex gap-3 justify-start">
+      <div className="flex gap-3 justify-start animate-message-fade">
         <BotAvatar />
-        <div className="max-w-[80%] rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm leading-relaxed text-destructive">
+        <div className="max-w-[80%] rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm leading-relaxed text-destructive dark:bg-destructive/10">
           {message.content}
         </div>
       </div>
@@ -216,15 +225,17 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
   return (
     <div
       className={cn(
-        "flex gap-3",
+        "flex gap-3 animate-message-fade",
         isUser ? "justify-end" : "justify-start"
       )}
     >
       {!isUser && <BotAvatar />}
       <div
         className={cn(
-          "max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed",
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted"
+          "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+          isUser
+            ? "bg-primary text-primary-foreground shadow-sm"
+            : "bg-muted/70 dark:bg-muted/50"
         )}
       >
         <ToolCallBlock metadata={message.metadata} />
@@ -287,12 +298,12 @@ function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps
   return (
     <div className="animate-message-fade flex gap-3 justify-start">
       <BotAvatar />
-      <div className="max-w-[80%] rounded-xl bg-muted px-4 py-2.5 text-sm leading-relaxed">
+      <div className="max-w-[80%] rounded-2xl bg-muted/70 dark:bg-muted/50 px-4 py-2.5 text-sm leading-relaxed">
         <ToolCallBlock metadata={message.metadata} />
         <div className="relative">
           <MarkdownContent content={displayed} />
           {!isDone && (
-            <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-current align-middle" />
+            <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary align-middle rounded-full" />
           )}
         </div>
         <ErrorBlock metadata={message.metadata} />
@@ -309,7 +320,7 @@ interface PendingUserBubbleProps {
 function PendingUserBubble({ content, user }: PendingUserBubbleProps) {
   return (
     <div className="animate-message-in flex gap-3 justify-end">
-      <div className="max-w-[80%] rounded-xl bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
+      <div className="max-w-[80%] rounded-2xl bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm">
         <div className="whitespace-pre-wrap">{content}</div>
       </div>
       <UserAvatar user={user} />
@@ -323,10 +334,14 @@ function ThinkingIndicator({ activeToolCall }: { activeToolCall: string | null }
   return (
     <div className="animate-message-fade flex gap-3 justify-start">
       <BotAvatar />
-      <div className="rounded-xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+      <div className="rounded-2xl bg-muted/70 dark:bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground">
         {!activeToolCall ? (
           <div className="flex items-center gap-2">
-            <Loader2 className="size-3.5 animate-spin" />
+            <div className="flex gap-1">
+              <span className="size-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
+              <span className="size-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
+              <span className="size-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:300ms]" />
+            </div>
             <span>Thinking...</span>
           </div>
         ) : (
@@ -334,9 +349,9 @@ function ThinkingIndicator({ activeToolCall }: { activeToolCall: string | null }
             <button
               type="button"
               onClick={() => setExpanded((prev) => !prev)}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 transition-colors hover:text-foreground"
             >
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="size-3.5 animate-spin text-primary" />
               <span>Calling 1 tool</span>
               <ChevronRight
                 className={cn(
@@ -347,12 +362,12 @@ function ThinkingIndicator({ activeToolCall }: { activeToolCall: string | null }
             </button>
             <div
               className={cn(
-                "grid transition-all duration-200 ease-in-out",
+                "grid transition-all duration-300 ease-out",
                 expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
               )}
             >
               <div className="overflow-hidden">
-                <code className="mt-1.5 inline-block rounded bg-background/50 px-1.5 py-0.5 text-[11px] font-mono">
+                <code className="mt-1.5 inline-block rounded-md bg-background/60 px-2 py-1 text-[11px] font-mono text-foreground">
                   {activeToolCall}
                 </code>
               </div>
@@ -367,7 +382,7 @@ function ThinkingIndicator({ activeToolCall }: { activeToolCall: string | null }
 function BotAvatar() {
   return (
     <Avatar size="sm" className="mt-0.5 shrink-0">
-      <AvatarFallback className="bg-primary text-primary-foreground">
+      <AvatarFallback className="bg-primary/10 text-primary">
         <Bot className="size-3.5" />
       </AvatarFallback>
     </Avatar>
@@ -378,7 +393,7 @@ function UserAvatar({ user }: { user: Doc<"users"> }) {
   return (
     <Avatar size="sm" className="mt-0.5 shrink-0">
       <AvatarImage src={user.image ?? undefined} />
-      <AvatarFallback>
+      <AvatarFallback className="bg-primary text-primary-foreground">
         <User className="size-3.5" />
       </AvatarFallback>
     </Avatar>
@@ -412,7 +427,7 @@ function ToolCallBlock({ metadata }: { metadata?: Message["metadata"] }) {
       </button>
       <div
         className={cn(
-          "grid transition-all duration-200 ease-in-out",
+          "grid transition-all duration-300 ease-out",
           expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         )}
       >
@@ -421,7 +436,7 @@ function ToolCallBlock({ metadata }: { metadata?: Message["metadata"] }) {
             {toolCalls.map((name, i) => (
               <code
                 key={i}
-                className="rounded bg-background/50 px-1.5 py-0.5 text-[11px] font-mono"
+                className="rounded-md bg-background/60 px-2 py-0.5 text-[11px] font-mono"
               >
                 {name}
               </code>

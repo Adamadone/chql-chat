@@ -166,7 +166,7 @@ export function ChatInput({
 
   return (
     <div className="mx-auto w-full max-w-4xl">
-      <div className="relative rounded-2xl border border-border/60 bg-background shadow-lg focus-within:border-ring focus-within:ring-[1px] focus-within:ring-ring/30">
+      <div className="relative rounded-2xl border border-border/50 bg-card shadow-md transition-all duration-200 focus-within:shadow-lg focus-within:border-primary/30 focus-within:ring-1 focus-within:ring-primary/20">
         <textarea
           ref={textareaRef}
           value={input}
@@ -181,11 +181,12 @@ export function ChatInput({
           rows={3}
           disabled={isSending}
         />
-        <div className="absolute right-2 bottom-2">
+        <div className="absolute right-2.5 bottom-2.5">
           {isSending ? (
             <Button
               size="icon-sm"
               variant="destructive"
+              className="rounded-xl transition-transform duration-150 active:scale-95"
               onClick={handleInterrupt}
             >
               <Square className="size-3.5" />
@@ -193,6 +194,7 @@ export function ChatInput({
           ) : (
             <Button
               size="icon-sm"
+              className="rounded-xl transition-transform duration-150 active:scale-95"
               onClick={handleSend}
               disabled={!input.trim()}
             >

@@ -3,40 +3,79 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================================
+   DESIGN SYSTEM — CHQL Chat
+   ============================================================================
+   Primary: Teal/Cyan
+   Base color: neutral (warm grey with slight blue tint)
+   Color format: OKLCH (perceptually uniform)
+   Shadow system: 5 levels (xs → xl)
+   Typography: Geist Sans / Geist Mono
+   Spacing: Tailwind v4 defaults (4px base)
+   ============================================================================ */
+
 @theme inline {
+  /* --- Semantic colors (mapped from CSS variables) --- */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
+
+  /* Surfaces */
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Primary (teal) */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  /* Secondary */
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  /* Muted */
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  /* Accent */
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Semantic status colors */
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Borders & inputs */
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Border radius scale */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -46,74 +85,211 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/* ============================================================================
+   TEAL PRIMARY COLOR PALETTE (9 shades)
+   Hue ~180 (teal/cyan), saturation varies for perceptual richness
+   ============================================================================
+   100: Lightest tint (backgrounds, badges)
+   200: Light (hover backgrounds)
+   300: Medium-light (borders, subtle accents)
+   400: Medium (secondary text on dark)
+   500: Base (buttons, links, primary actions)
+   600: Medium-dark (hover on buttons)
+   700: Dark (active states)
+   800: Darker (text on light backgrounds)
+   900: Darkest (headings on light tinted backgrounds)
+   ============================================================================ */
+
 :root {
+  /* --- Base radius --- */
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  /* --- Teal palette --- */
+  --teal-50:  oklch(0.97 0.02 180);
+  --teal-100: oklch(0.93 0.04 180);
+  --teal-200: oklch(0.87 0.08 178);
+  --teal-300: oklch(0.78 0.12 177);
+  --teal-400: oklch(0.68 0.15 176);
+  --teal-500: oklch(0.58 0.14 175);
+  --teal-600: oklch(0.50 0.13 175);
+  --teal-700: oklch(0.42 0.11 176);
+  --teal-800: oklch(0.35 0.09 177);
+  --teal-900: oklch(0.28 0.07 178);
+
+  /* --- Neutral palette (warm grey, slight blue tint) --- */
+  --neutral-50:  oklch(0.985 0.002 250);
+  --neutral-100: oklch(0.97 0.003 250);
+  --neutral-200: oklch(0.92 0.004 250);
+  --neutral-300: oklch(0.87 0.005 250);
+  --neutral-400: oklch(0.71 0.007 250);
+  --neutral-500: oklch(0.55 0.008 250);
+  --neutral-600: oklch(0.45 0.008 250);
+  --neutral-700: oklch(0.37 0.008 250);
+  --neutral-800: oklch(0.27 0.006 250);
+  --neutral-900: oklch(0.20 0.005 250);
+  --neutral-950: oklch(0.14 0.004 250);
+
+  /* --- Semantic colors: Light mode --- */
+  --background: var(--neutral-50);
+  --foreground: var(--neutral-900);
+
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: var(--neutral-900);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: var(--neutral-900);
+
+  /* Primary = teal */
+  --primary: var(--teal-600);
+  --primary-foreground: oklch(1 0 0);
+
+  /* Secondary = neutral light */
+  --secondary: var(--neutral-100);
+  --secondary-foreground: var(--neutral-800);
+
+  /* Muted */
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-500);
+
+  /* Accent = teal-tinted light */
+  --accent: var(--teal-50);
+  --accent-foreground: var(--teal-900);
+
+  /* Destructive (red) */
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --destructive-foreground: oklch(1 0 0);
+
+  /* Success (green) */
+  --success: oklch(0.55 0.16 145);
+  --success-foreground: oklch(1 0 0);
+
+  /* Warning (amber) */
+  --warning: oklch(0.75 0.16 75);
+  --warning-foreground: oklch(0.30 0.06 60);
+
+  /* Info (blue) */
+  --info: oklch(0.55 0.18 250);
+  --info-foreground: oklch(1 0 0);
+
+  /* Borders & inputs */
+  --border: var(--neutral-200);
+  --input: var(--neutral-200);
+  --ring: var(--teal-500);
+
+  /* Chart colors (balanced for data viz) */
+  --chart-1: var(--teal-500);
+  --chart-2: oklch(0.65 0.20 45);
+  --chart-3: oklch(0.55 0.18 250);
+  --chart-4: oklch(0.60 0.20 330);
+  --chart-5: oklch(0.70 0.15 145);
+
+  /* Sidebar */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: var(--neutral-900);
+  --sidebar-primary: var(--teal-600);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: var(--teal-50);
+  --sidebar-accent-foreground: var(--teal-900);
+  --sidebar-border: var(--neutral-200);
+  --sidebar-ring: var(--teal-500);
+
+  /* --- Shadow elevation system (5 levels) ---
+     Each shadow has two parts per Refactoring UI:
+     1. Larger, softer shadow (direct light simulation)
+     2. Tighter, darker shadow (ambient occlusion)
+  */
+  --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.07),
+               0 1px 2px -1px oklch(0 0 0 / 0.07);
+  --shadow-md: 0 4px 6px -1px oklch(0 0 0 / 0.07),
+               0 2px 4px -2px oklch(0 0 0 / 0.07);
+  --shadow-lg: 0 10px 15px -3px oklch(0 0 0 / 0.07),
+               0 4px 6px -4px oklch(0 0 0 / 0.07);
+  --shadow-xl: 0 20px 25px -5px oklch(0 0 0 / 0.08),
+               0 8px 10px -6px oklch(0 0 0 / 0.06);
 }
 
+/* ============================================================================
+   DARK MODE
+   ============================================================================ */
+
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: var(--neutral-950);
+  --foreground: var(--neutral-100);
+
+  --card: var(--neutral-900);
+  --card-foreground: var(--neutral-100);
+  --popover: var(--neutral-900);
+  --popover-foreground: var(--neutral-100);
+
+  /* Primary = lighter teal for contrast on dark */
+  --primary: var(--teal-400);
+  --primary-foreground: var(--neutral-950);
+
+  /* Secondary */
+  --secondary: var(--neutral-800);
+  --secondary-foreground: var(--neutral-100);
+
+  /* Muted */
+  --muted: var(--neutral-800);
+  --muted-foreground: var(--neutral-400);
+
+  /* Accent */
+  --accent: oklch(0.22 0.04 178);
+  --accent-foreground: var(--teal-200);
+
+  /* Destructive (brighter red for dark bg) */
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --destructive-foreground: oklch(1 0 0);
+
+  /* Success */
+  --success: oklch(0.65 0.18 145);
+  --success-foreground: oklch(0.15 0.03 145);
+
+  /* Warning */
+  --warning: oklch(0.80 0.15 75);
+  --warning-foreground: oklch(0.25 0.05 60);
+
+  /* Info */
+  --info: oklch(0.65 0.18 250);
+  --info-foreground: oklch(0.15 0.03 250);
+
+  /* Borders & inputs */
+  --border: oklch(1 0 0 / 0.10);
+  --input: oklch(1 0 0 / 0.15);
+  --ring: var(--teal-400);
+
+  /* Chart colors (brighter for dark backgrounds) */
+  --chart-1: var(--teal-400);
+  --chart-2: oklch(0.75 0.18 45);
+  --chart-3: oklch(0.65 0.20 250);
+  --chart-4: oklch(0.70 0.22 330);
+  --chart-5: oklch(0.75 0.17 145);
+
+  /* Sidebar */
+  --sidebar: var(--neutral-900);
+  --sidebar-foreground: var(--neutral-100);
+  --sidebar-primary: var(--teal-400);
+  --sidebar-primary-foreground: var(--neutral-950);
+  --sidebar-accent: oklch(0.22 0.04 178);
+  --sidebar-accent-foreground: var(--teal-200);
+  --sidebar-border: oklch(1 0 0 / 0.10);
+  --sidebar-ring: var(--teal-400);
+
+  /* Shadows: subtler on dark backgrounds, using lighter opacity */
+  --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.15);
+  --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.25),
+               0 1px 2px -1px oklch(0 0 0 / 0.25);
+  --shadow-md: 0 4px 6px -1px oklch(0 0 0 / 0.30),
+               0 2px 4px -2px oklch(0 0 0 / 0.25);
+  --shadow-lg: 0 10px 15px -3px oklch(0 0 0 / 0.30),
+               0 4px 6px -4px oklch(0 0 0 / 0.25);
+  --shadow-xl: 0 20px 25px -5px oklch(0 0 0 / 0.35),
+               0 8px 10px -6px oklch(0 0 0 / 0.25);
 }
+
+/* ============================================================================
+   BASE LAYER
+   ============================================================================ */
 
 @layer base {
   * {
@@ -132,6 +308,10 @@
     cursor: pointer;
   }
 }
+
+/* ============================================================================
+   PROSE — Chat message markdown rendering
+   ============================================================================ */
 
 .prose-chat {
   line-height: 1.6;
@@ -213,6 +393,10 @@
   font-weight: 600;
 }
 
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
 @keyframes message-slide-in {
   from {
     opacity: 0;
@@ -241,10 +425,12 @@
   animation: message-fade-in 0.25s ease-out both;
 }
 
-/* Hero page */
+/* ============================================================================
+   HERO PAGE
+   ============================================================================ */
 
 .hero-gradient-text {
-  background: linear-gradient(135deg, oklch(0.55 0.2 260), oklch(0.6 0.22 300));
+  background: linear-gradient(135deg, var(--teal-500), var(--teal-300));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -253,7 +439,7 @@
 }
 
 .dark .hero-gradient-text {
-  background: linear-gradient(135deg, oklch(0.7 0.2 260), oklch(0.75 0.22 300));
+  background: linear-gradient(135deg, var(--teal-400), var(--teal-200));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

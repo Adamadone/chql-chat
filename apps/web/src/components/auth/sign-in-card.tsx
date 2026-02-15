@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { MessageSquare } from "lucide-react";
 
 function GitHubIcon({ className }: { className?: string }) {
@@ -45,13 +46,20 @@ export function SignInCard() {
   const { signIn } = useAuthActions();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="mb-8 flex items-center gap-2 text-lg font-semibold">
-        <MessageSquare className="size-6" />
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      {/* Theme toggle in top right */}
+      <div className="fixed top-4 right-4">
+        <ThemeToggle />
+      </div>
+
+      <div className="mb-8 flex items-center gap-2.5 text-lg font-semibold">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <MessageSquare className="size-4" />
+        </div>
         CHQL Chat
       </div>
 
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Sign in</CardTitle>
           <CardDescription>Choose a provider to continue</CardDescription>
@@ -82,7 +90,7 @@ export function SignInCard() {
         </CardContent>
       </Card>
 
-      <p className="mt-6 max-w-xs text-center text-xs text-muted-foreground">
+      <p className="mt-6 max-w-xs text-center text-xs leading-relaxed text-muted-foreground">
         By signing in you agree to have your basic profile information stored
         for authentication purposes.
       </p>
