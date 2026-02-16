@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "convex/_generated/api";
@@ -27,46 +27,8 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { MessageSquare, Plus, Trash2, LogOut } from "lucide-react";
 import type { Id, Doc } from "convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
-
-const TITLE_CHARS_PER_FRAME = 2;
-const TITLE_FRAME_INTERVAL = 18;
-
-function useAnimatedTitle(title: string) {
-  const prevRef = useRef(title);
-  const [displayed, setDisplayed] = useState(title);
-
-  useEffect(() => {
-    const prev = prevRef.current;
-    prevRef.current = title;
-
-    if (prev === "New Chat" && title !== "New Chat") {
-      setDisplayed("");
-      let index = 0;
-      let raf: number;
-      let last = 0;
-
-      const step = (time: number) => {
-        if (time - last >= TITLE_FRAME_INTERVAL) {
-          last = time;
-          index += TITLE_CHARS_PER_FRAME;
-          if (index >= title.length) {
-            setDisplayed(title);
-            return;
-          }
-          setDisplayed(title.slice(0, index));
-        }
-        raf = requestAnimationFrame(step);
-      };
-
-      raf = requestAnimationFrame(step);
-      return () => cancelAnimationFrame(raf);
-    }
-
-    setDisplayed(title);
-  }, [title]);
-
-  return displayed;
-}
+import { useAnimatedTitle } from "@/hooks/use-animated-title";
+import { getInitials } from "@/utils/format";
 
 interface ChatSidebarProps {
   activeChatId: Id<"chats"> | null;
@@ -128,14 +90,7 @@ export function ChatSidebar({
     }
   };
 
-  const initials = user.name
-    ? user.name
-        .split(" ")
-        .map((n: string) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
-    : "?";
+  const initials = getInitials(user.name);
 
   return (
     <TooltipProvider delayDuration={0}>

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useMutation, useAction, useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Send, Square } from "lucide-react";
+import { useMessageHistory } from "@/hooks/use-message-history";
+import { useTextareaAutoResize } from "@/hooks/use-textarea-auto-resize";
 import type { Id } from "convex/_generated/dataModel";
 
 interface ChatInputProps {
@@ -29,26 +31,20 @@ export function ChatInput({
   const activeChatRef = useRef<Id<"chats"> | null>(null);
   const abortedRef = useRef(false);
 
-  // -1 means "not browsing history" (current draft), 0 = most recent, 1 = second most recent, etc.
-  const historyIndexRef = useRef(-1);
-  const draftRef = useRef("");
-
   const createChat = useMutation(api.chats.create);
   const emptyChat = useQuery(api.chats.findEmpty);
   const processMessage = useAction(api.ai.processMessage);
   const generateTitle = useAction(api.ai.generateTitle);
   const interruptMessage = useMutation(api.messages.interrupt);
 
-  const adjustHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 300)}px`;
-  }, []);
-
-  useEffect(() => {
-    adjustHeight();
-  }, [input, adjustHeight]);
+  useTextareaAutoResize(textareaRef, input);
+  const { handleHistoryKeyDown, resetHistory } = useMessageHistory(
+    userMessageHistory,
+    input,
+    setInput,
+    isSending,
+    textareaRef,
+  );
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -56,8 +52,7 @@ export function ChatInput({
 
     onSendingChange(true);
     abortedRef.current = false;
-    historyIndexRef.current = -1;
-    draftRef.current = "";
+    resetHistory();
     setInput("");
     onOptimisticSend(trimmed);
 
@@ -119,49 +114,7 @@ export function ChatInput({
       return;
     }
 
-    if (e.key === "ArrowUp" && !isSending && userMessageHistory.length > 0) {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      const cursorAtTop =
-        textarea.selectionStart === 0 && textarea.selectionEnd === 0;
-      if (!cursorAtTop) return;
-
-      e.preventDefault();
-
-      if (historyIndexRef.current === -1) {
-        draftRef.current = input;
-      }
-
-      const nextIndex = historyIndexRef.current + 1;
-      if (nextIndex >= userMessageHistory.length) return;
-
-      historyIndexRef.current = nextIndex;
-      setInput(userMessageHistory[nextIndex]);
-    }
-
-    if (e.key === "ArrowDown" && !isSending && historyIndexRef.current >= 0) {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      const value = textarea.value;
-      const cursorAtBottom =
-        textarea.selectionStart === value.length &&
-        textarea.selectionEnd === value.length;
-      if (!cursorAtBottom) return;
-
-      e.preventDefault();
-
-      const nextIndex = historyIndexRef.current - 1;
-
-      if (nextIndex < 0) {
-        historyIndexRef.current = -1;
-        setInput(draftRef.current);
-      } else {
-        historyIndexRef.current = nextIndex;
-        setInput(userMessageHistory[nextIndex]);
-      }
-    }
+    handleHistoryKeyDown(e);
   };
 
   return (
@@ -172,8 +125,7 @@ export function ChatInput({
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
-            historyIndexRef.current = -1;
-            draftRef.current = "";
+            resetHistory();
           }}
           onKeyDown={handleKeyDown}
           placeholder="Type a message... (Enter to send, Shift+Enter for new line)"

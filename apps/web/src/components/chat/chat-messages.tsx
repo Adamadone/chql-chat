@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Bot, User, Loader2, ArrowDown, ChevronRight, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Button } from "@/components/ui/button";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import type { Doc } from "convex/_generated/dataModel";
 
 interface Message {
@@ -38,8 +40,6 @@ interface ChatMessagesProps {
   activeToolCall: string | null;
 }
 
-const BOTTOM_THRESHOLD = 40;
-
 export function ChatMessages({
   messages,
   user,
@@ -49,90 +49,11 @@ export function ChatMessages({
   onTypewriterDone,
   activeToolCall,
 }: ChatMessagesProps) {
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isLatchedRef = useRef(true);
-  const [showJumpButton, setShowJumpButton] = useState(false);
-
-  const getViewport = useCallback(() => {
-    return scrollAreaRef.current?.querySelector<HTMLDivElement>(
-      "[data-radix-scroll-area-viewport]"
-    );
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    const viewport = getViewport();
-    if (viewport) {
-      viewport.scrollTop = viewport.scrollHeight;
-    }
-  }, [getViewport]);
-
-  const smoothScrollToBottom = useCallback(() => {
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const start = viewport.scrollTop;
-    const target = viewport.scrollHeight - viewport.clientHeight;
-    const distance = target - start;
-    if (distance <= 0) return;
-
-    const duration = Math.min(400, Math.max(150, distance * 0.5));
-    const startTime = performance.now();
-
-    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-
-    const step = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      viewport.scrollTop = start + distance * easeOutCubic(progress);
-      if (progress < 1) {
-        requestAnimationFrame(step);
-      }
-    };
-
-    requestAnimationFrame(step);
-  }, [getViewport]);
-
-  const handleLatchedScroll = useCallback(() => {
-    if (isLatchedRef.current) {
-      scrollToBottom();
-    }
-  }, [scrollToBottom]);
-
-  useEffect(() => {
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const onScroll = () => {
-      const distanceFromBottom =
-        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      const latched = distanceFromBottom <= BOTTOM_THRESHOLD;
-      isLatchedRef.current = latched;
-      setShowJumpButton(!latched);
-    };
-
-    viewport.addEventListener("scroll", onScroll, { passive: true });
-    return () => viewport.removeEventListener("scroll", onScroll);
-  }, [getViewport]);
-
-  useEffect(() => {
-    if (isLatchedRef.current) {
-      scrollToBottom();
-    }
-  }, [messages.length, pendingMessage?.key, scrollToBottom]);
-
-  useEffect(() => {
-    if (pendingMessage) {
-      isLatchedRef.current = true;
-      setShowJumpButton(false);
-    }
-  }, [pendingMessage]);
-
-  const handleJumpToBottom = useCallback(() => {
-    isLatchedRef.current = true;
-    setShowJumpButton(false);
-    smoothScrollToBottom();
-  }, [smoothScrollToBottom]);
+  const { scrollAreaRef, showJumpButton, handleJumpToBottom, handleLatchedScroll } =
+    useAutoScroll({
+      deps: [messages.length, pendingMessage?.key],
+      pendingMessage,
+    });
 
   const showThinking = isWaitingForResponse && !typewriterId;
 
@@ -177,7 +98,7 @@ export function ChatMessages({
             />
           )}
           {showThinking && <ThinkingIndicator activeToolCall={activeToolCall} />}
-          <div ref={bottomRef} />
+          <div />
         </div>
       </ScrollArea>
 
@@ -257,43 +178,8 @@ interface TypewriterBubbleProps {
   onProgress: () => void;
 }
 
-const CHARS_PER_TICK = 3;
-const TICK_MS = 14;
-
 function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps) {
-  const [charIndex, setCharIndex] = useState(0);
-  const text = message.content;
-  const isDone = charIndex >= text.length;
-
-  useEffect(() => {
-    if (isDone) {
-      onDone();
-      return;
-    }
-
-    let raf: number;
-    let last = 0;
-
-    const step = (now: number) => {
-      if (now - last >= TICK_MS) {
-        last = now;
-        setCharIndex((prev) => {
-          const next = prev + CHARS_PER_TICK;
-          return next >= text.length ? text.length : next;
-        });
-      }
-      raf = requestAnimationFrame(step);
-    };
-
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [isDone, text.length, onDone]);
-
-  useEffect(() => {
-    onProgress();
-  }, [charIndex, onProgress]);
-
-  const displayed = isDone ? text : text.slice(0, charIndex);
+  const { displayed, isDone } = useTypewriter(message.content, onDone, onProgress);
 
   return (
     <div className="animate-message-fade flex gap-3 justify-start">
