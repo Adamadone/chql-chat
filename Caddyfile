@@ -2,7 +2,7 @@
 # Caddy automatically provisions HTTPS certificates via Let's Encrypt.
 
 # Next.js frontend
-chat.azacios.cz {
+chql.azacios.cz {
 	reverse_proxy web:3000
 }
 
