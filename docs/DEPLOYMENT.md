@@ -4,20 +4,7 @@ This guide covers deploying chql-chat to a Hetzner VPS running **Ubuntu 24.04 LT
 
 ## Dual Environment Setup
 
-The project uses **two separate Convex deployments** to fully isolate development from production:
-
-| | Development | Production |
-|---|---|---|
-| **Convex deployment** | `dev:qualified-malamute-653` | `pleasant-cheetah-909` (eu-west-1) |
-| **Convex cloud URL** | `https://qualified-malamute-653.convex.cloud` | `https://pleasant-cheetah-909.eu-west-1.convex.cloud` |
-| **Convex site URL** | `https://qualified-malamute-653.convex.site` | `https://pleasant-cheetah-909.eu-west-1.convex.site` |
-| **SITE_URL** (redirect after OAuth) | `http://localhost:3000` | `https://chql.azacios.cz` |
-| **GitHub OAuth App** | "chql-chat DEV" (`Ov23libGZlBYFIkFP6hZ`) | "chql-chat" (`Ov23liMAkvVMVeljfQB6`) |
-| **OAuth callback URL** | `https://qualified-malamute-653.convex.site/api/auth/callback/github` | `https://pleasant-cheetah-909.eu-west-1.convex.site/api/auth/callback/github` |
-| **Frontend URL** | `http://localhost:3000` | `https://chql.azacios.cz` |
-| **MCP Server URL** | `https://mcp.azacios.cz/mcp` (shared) | `https://mcp.azacios.cz/mcp` |
-
-> **Why two deployments?** Convex Auth uses the `SITE_URL` env var to redirect the browser after OAuth. With a single deployment, `SITE_URL` had to point to either localhost or production — you couldn't use both. Two deployments means each has its own `SITE_URL`, so GitHub login works correctly in both environments.
+See [SETUP.md](./SETUP.md#dual-environment-overview) for the full dual-deployment table (dev vs prod Convex deployments, OAuth apps, URLs). The production Convex deployment is `pleasant-cheetah-909` (eu-west-1).
 
 ## Architecture
 
@@ -57,25 +44,7 @@ Internet
 
 ## Secrets Inventory
 
-| Secret | Where it lives | Who uses it |
-|---|---|---|
-| `CHYSTAT_API_TOKEN` | `.env.production` on server | MCP server -> chy.stat API |
-| `MCP_AUTH_TOKEN` | `.env.production` on server + Convex env vars (prod) | Convex action -> MCP server auth |
-| `ANTHROPIC_API_KEY` | Convex env vars (both deployments) | Convex action -> Claude API |
-| `AUTH_SECRET` | Convex env vars (both deployments) | Convex Auth session encryption |
-| `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` | Convex env vars (per deployment) | Convex Auth GitHub OAuth |
-| `SITE_URL` | Convex env vars (per deployment) | Post-OAuth redirect target |
-| `NEXT_PUBLIC_CONVEX_URL` | Docker build arg (in compose) | Baked into Next.js client bundle |
-| `HETZNER_HOST` / `HETZNER_USER` / `HETZNER_SSH_KEY` | GitHub Secrets | CI/CD SSH deployment |
-| `CONVEX_PROD_DEPLOY_KEY` | GitHub Secrets | CI/CD Convex function deployment |
-
-### What goes where
-
-- **On the server** (`.env.production`): Only secrets the Docker containers need directly (`CHYSTAT_API_TOKEN`, `MCP_AUTH_TOKEN`, `NEXT_PUBLIC_CONVEX_URL`).
-- **In Convex dashboard (PROD — `pleasant-cheetah-909`)**: `ANTHROPIC_API_KEY`, `MCP_SERVER_URL`, `MCP_AUTH_TOKEN`, `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `SITE_URL=https://chql.azacios.cz`.
-- **In Convex dashboard (DEV — `qualified-malamute-653`)**: Same keys but with dev GitHub OAuth app credentials and `SITE_URL=http://localhost:3000`.
-- **In GitHub Secrets**: SSH credentials (`HETZNER_HOST`, `HETZNER_USER`, `HETZNER_SSH_KEY`) + Convex prod deploy key (`CONVEX_PROD_DEPLOY_KEY`).
-- **Never committed to git**: All of the above. The `.env.production` file is created manually on the server and listed in `.gitignore`.
+See [SETUP.md](./SETUP.md#secrets-inventory) for the full secrets table and where each secret lives (server, Convex dashboard, GitHub Secrets, etc.).
 
 ---
 
@@ -287,7 +256,7 @@ chql-chat-caddy-1       caddy         Up
 ```bash
 # Health check from the server
 curl http://localhost:3001/health
-# Expected: {"status":"ok","sessions":0}
+# Expected: {"status":"ok"}
 
 # From the internet (or from the server itself)
 curl https://mcp.example.com/health
@@ -298,44 +267,7 @@ curl -I https://chql.example.com
 
 ## Convex Environment Variables
 
-Convex actions run on Convex's cloud infrastructure (not on your server). They need their own copy of certain secrets. Each deployment (dev and prod) has its own set of env vars.
-
-### Production deployment (`pleasant-cheetah-909`)
-
-Set via the Convex dashboard or CLI with `--url`:
-
-```bash
-npx convex env set SITE_URL https://chql.azacios.cz --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set AUTH_GITHUB_ID <prod-github-oauth-id> --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set AUTH_GITHUB_SECRET <prod-github-oauth-secret> --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set AUTH_SECRET <your-auth-secret> --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set ANTHROPIC_API_KEY <your-anthropic-key> --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set MCP_SERVER_URL https://mcp.azacios.cz/mcp --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-npx convex env set MCP_AUTH_TOKEN <same-value-as-on-server> --url https://pleasant-cheetah-909.eu-west-1.convex.cloud
-```
-
-### Development deployment (`dev:qualified-malamute-653`)
-
-Set via the CLI (targets the deployment in `.env` by default):
-
-```bash
-npx convex env set SITE_URL http://localhost:3000
-npx convex env set AUTH_GITHUB_ID <dev-github-oauth-id>
-npx convex env set AUTH_GITHUB_SECRET <dev-github-oauth-secret>
-npx convex env set AUTH_SECRET <your-auth-secret>
-npx convex env set ANTHROPIC_API_KEY <your-anthropic-key>
-npx convex env set MCP_SERVER_URL https://mcp.azacios.cz/mcp
-npx convex env set MCP_AUTH_TOKEN <same-value-as-on-server>
-```
-
-### GitHub OAuth callback URLs
-
-Each environment has its own GitHub OAuth App with its own callback URL:
-
-- **Production** OAuth App callback: `https://pleasant-cheetah-909.eu-west-1.convex.site/api/auth/callback/github`
-- **Development** OAuth App callback: `https://qualified-malamute-653.convex.site/api/auth/callback/github`
-
-> **Important:** The env var names used by `@auth/core` are `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` (with `AUTH_` prefix). Do not use `GITHUB_ID`/`GITHUB_SECRET` — those are ignored by Convex Auth.
+See [SETUP.md](./SETUP.md#convex-environment-variables) for the full Convex env var setup (both dev and prod deployments, CLI commands, and GitHub OAuth callback URLs).
 
 ---
 

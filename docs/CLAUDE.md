@@ -63,13 +63,24 @@ Bachelor's thesis project: A web application that converts natural-language inpu
 ```
 chql-chat/
 ├── apps/
-│   ├── web/                       # Next.js application
+│   ├── web/                       # Next.js 16 application
 │   │   ├── src/
-│   │   │   ├── app/               # Next.js App Router
+│   │   │   ├── app/               # Next.js App Router (pages + layouts)
 │   │   │   ├── components/        # React components
-│   │   │   ├── lib/               # Utilities
-│   │   │   ├── providers/         # Context providers
-│   │   │   └── auth.ts            # Auth configuration
+│   │   │   │   ├── chat/          #   Chat UI (area, input, messages, sidebar, shell, markdown)
+│   │   │   │   ├── auth/          #   Auth UI (sign-in card)
+│   │   │   │   └── ui/            #   shadcn/ui primitives (13 components)
+│   │   │   ├── hooks/             # Custom React hooks
+│   │   │   │   ├── use-auto-scroll.ts       # Latch-to-bottom scroll for ScrollArea
+│   │   │   │   ├── use-typewriter.ts        # RAF character-by-character text reveal
+│   │   │   │   ├── use-animated-title.ts    # Typewriter animation for chat titles
+│   │   │   │   ├── use-message-history.ts   # Arrow-key browsing through past messages
+│   │   │   │   └── use-textarea-auto-resize.ts  # Auto-resize textarea to content
+│   │   │   ├── utils/             # Utility functions
+│   │   │   │   ├── easing.ts      #   Easing functions (easeOutCubic)
+│   │   │   │   └── format.ts      #   Formatting helpers (getInitials)
+│   │   │   ├── lib/               # shadcn/ui utilities (cn)
+│   │   │   └── providers/         # Context providers (Convex, theme)
 │   │   └── ...
 │   └── mcp-server/                # MCP Server (Streamable HTTP)
 │       ├── src/
@@ -81,21 +92,27 @@ chql-chat/
 │   ├── schema.ts                  # Database schema
 │   ├── chats.ts                   # Chat CRUD operations
 │   ├── messages.ts                # Message operations
-│   ├── users.ts                   # User operations
+│   ├── users.ts                   # User queries
 │   ├── ai.ts                      # LLM + MCP client integration
-│   ├── auth.ts                    # Convex Auth config
-│   └── http.ts                    # HTTP routes
+│   ├── auth.ts                    # Convex Auth config (GitHub OAuth)
+│   ├── auth.config.ts             # Auth provider/domain config
+│   ├── http.ts                    # HTTP routes (auth callbacks)
+│   ├── migrations.ts              # Database migrations
+│   └── convex.config.ts           # Convex app definition
 ├── packages/
-│   └── shared/                    # Shared types/utilities
+│   └── shared/                    # Shared TypeScript interfaces
 ├── docker/
 │   ├── Dockerfile.web             # Next.js production container
 │   └── Dockerfile.mcp             # MCP server production container
 └── docs/
     ├── antlr4/                    # CHQL grammar (lexer + parser)
     ├── CLAUDE.md                  # This file
+    ├── SETUP.md                   # Env vars, auth, secrets, Convex config
     ├── DEPLOYMENT.md              # Production deployment guide
-    ├── bachelors-specs.md         # Implementation plan
-    └── initial-plan.md            # Thesis overview
+    ├── bachelors-specs.md         # Thesis implementation plan
+    ├── bachelors-thesis-zadani.md # Thesis assignment (Czech/English)
+    ├── Scenarios-prompt-examples.md # NL-to-CHQL test scenarios
+    └── initial-plan.md            # Original planning document
 ```
 
 ## Development Commands
@@ -135,24 +152,15 @@ npm run docker:logs
 
 ## Environment Variables
 
-| Variable | Used By | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Convex actions | Anthropic Claude API key |
-| `CHYSTAT_API_TOKEN` | MCP server | chy.stat API Bearer token |
-| `MCP_SERVER_URL` | Convex actions | MCP server URL (default: `http://localhost:3001/mcp`) |
-| `MCP_AUTH_TOKEN` | Convex actions + MCP server | Shared secret for MCP server auth (optional in dev) |
-| `MCP_PORT` | MCP server | HTTP port (default: `3001`) |
-| `CONVEX_DEPLOYMENT` | Convex | Convex deployment identifier |
-| `AUTH_SECRET` | Convex Auth | Session encryption secret |
-| `GITHUB_ID` / `GITHUB_SECRET` | Convex Auth | GitHub OAuth credentials |
+See [SETUP.md](./SETUP.md#environment-variables) for the full environment variables table, secrets inventory, dotenvx encryption guide, and Convex env var configuration.
 
 ## Convex Backend Structure
 
 ### Schema (convex/schema.ts)
 - `users` - User accounts synced from Convex Auth
-- `chats` - Chat conversations per user
-- `messages` - Messages within chats (user/assistant roles, optional metadata with dslQuery/apiResponse/error)
-- `sessions` - Convex Auth sessions
+- `chats` - Chat conversations per user (with `activeToolCall` for real-time tool-use UI feedback)
+- `messages` - Messages within chats (user/assistant roles, optional metadata with dslQuery/apiResponse/error/toolCalls, `interrupted` flag)
+- Auth tables (`authAccounts`, `authSessions`, `authRefreshTokens`) - managed by Convex Auth
 
 ### Key File: convex/ai.ts (MCP Client)
 - `processMessage` action — main entry point for the LLM + tool use flow
@@ -168,10 +176,19 @@ npm run docker:logs
 ### Transport
 - **Default**: Streamable HTTP on port 3001 (`/mcp` endpoint)
 - **Alternative**: stdio transport (`--stdio` flag, for Claude Desktop or direct testing)
-- Health check: `GET /health`
+- Health check: `GET /health` (unauthenticated)
+
+### Security
+- Bearer token auth on `/mcp` routes (`MCP_AUTH_TOKEN`, required in production)
+- Timing-safe token comparison to prevent timing attacks
+- Per-IP sliding-window rate limiting (60 req/min)
+- Concurrent session cap (100)
+- Request body size limit (1 MB)
+- Security headers (`X-Content-Type-Options`, `X-Frame-Options`)
+- Non-root Docker user in production container
 
 ### Tool: search_measurements
-- **Input**: `query` (CHQL string), `pageSize` (optional), `pageNumber` (optional)
+- **Input**: `query` (CHQL string), `pageSize` (optional, 1-1000), `pageNumber` (optional, 1-based)
 - **Calls**: `POST https://demo.chystat.com/api/v2/measurements/search`
 - **Auth**: Bearer token from `CHYSTAT_API_TOKEN` env var
 - **Response format**: `aqdef-json` (static)
@@ -199,8 +216,11 @@ This project emphasizes prompt injection resistance with three defense layers:
 
 **Operational Controls:**
 - Max 5 tool call rounds per message (prevents infinite loops)
-- Rate limiting on tool calls (TODO)
-- Logging/auditing of tool invocations (TODO)
+- Per-IP rate limiting on MCP server (60 req/min sliding window)
+- Concurrent session cap on MCP server (100 sessions)
+- Request body size limit (1 MB)
+- Timing-safe token comparison (prevents timing attacks)
+- Security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`)
 
 ## UI Design Guidelines (Based on Refactoring UI)
 

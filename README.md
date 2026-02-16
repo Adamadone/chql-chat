@@ -36,31 +36,34 @@ Bachelor's thesis project focusing on secure LLM integration and prompt injectio
 ```
 chql-chat/
 ├── apps/
-│   ├── web/                    # Next.js application
+│   ├── web/                    # Next.js 16 application
 │   │   ├── src/
-│   │   │   ├── app/            # Next.js App Router
-│   │   │   ├── components/     # React components
-│   │   │   ├── lib/            # Utilities
-│   │   │   ├── providers/      # Context providers
-│   │   │   └── auth.ts         # Auth configuration
+│   │   │   ├── app/            # Next.js App Router (pages + layouts)
+│   │   │   ├── components/     # React components (chat/, auth/, ui/)
+│   │   │   ├── hooks/          # Custom React hooks
+│   │   │   ├── utils/          # Utility functions (easing, formatting)
+│   │   │   ├── lib/            # shadcn/ui utilities (cn)
+│   │   │   └── providers/      # Context providers (Convex, theme)
 │   │   └── package.json
 │   └── mcp-server/             # MCP Server (Streamable HTTP)
 │       ├── src/index.ts        # Server + tool definitions
 │       └── package.json
-├── convex/                     # Convex backend (at root)
-│   ├── schema.ts               # Database schema
-│   ├── chats.ts                # Chat operations
+├── convex/                     # Convex backend (serverless functions + DB)
+│   ├── schema.ts               # Database schema (chats, messages + auth tables)
+│   ├── chats.ts                # Chat CRUD operations
 │   ├── messages.ts             # Message operations
-│   ├── users.ts                # User operations
-│   └── ai.ts                   # LLM + MCP integration
+│   ├── users.ts                # User queries
+│   ├── ai.ts                   # LLM + MCP client integration
+│   ├── auth.ts                 # Convex Auth config (GitHub OAuth)
+│   └── http.ts                 # HTTP routes (auth callbacks)
 ├── packages/
-│   └── shared/                 # Shared types/utilities
+│   └── shared/                 # Shared TypeScript interfaces
 ├── docker/
 │   ├── Dockerfile.web          # Next.js production container
 │   └── Dockerfile.mcp          # MCP server production container
 ├── docs/                       # Project documentation
-├── .env.local                  # Local environment variables (git-ignored)
-└── package.json                # Root package.json
+├── .env.local                  # Encrypted environment variables (dotenvx)
+└── package.json                # Root workspace package.json
 ```
 
 ## Tech Stack
@@ -95,7 +98,7 @@ chql-chat/
    ```
 
 3. Set up environment variables:
-   - **If first time:** You need the `.env.keys` file with decryption key (see `docs/ENVIRONMENT_SETUP.md`)
+   - **If first time:** You need the `.env.keys` file with decryption key (see `docs/SETUP.md`)
    - **If team member:** Ask for the `DOTENV_PRIVATE_KEY_LOCAL` value and create `.env.keys`
    - The `.env.local` file is encrypted and included in the repo
 
@@ -136,12 +139,12 @@ npm run convex:deploy    # Deploy Convex to production
 The project follows a 5-step plan:
 
 1. **Scope & Requirements** - 1-2 page spec defining DSL domain, target API, chat features
-2. **DSL v1 Design** - DSL spec + 20 NL→DSL example pairs with allowlist
+2. **DSL v1 Design** - DSL spec + 20 NL-to-DSL example pairs with allowlist
 3. **System Architecture & Threat Model** - Architecture diagram + threat analysis
 4. **Vertical Slice Prototype** - End-to-end happy path demo
 5. **Prompt-Injection Defenses** - Defense checklist + test suite
 
-Current status: **Step 4** (vertical slice prototype complete)
+Current status: **Step 5** (production deployed, refining prompt-injection defenses)
 
 ## Security Focus
 
@@ -155,9 +158,10 @@ See `convex/ai.ts` for implementation details.
 
 ## Documentation
 
-- `docs/DEPLOYMENT.md` - **Production deployment guide (Hetzner + Docker + Caddy + CI/CD)**
-- `docs/ENVIRONMENT_SETUP.md` - **Environment variables & dotenvx encryption guide**
-- `docs/AUTHENTICATION_FLOW.md` - **How authentication works step-by-step**
-- `docs/CLAUDE.md` - Guidance for Claude Code
-- `docs/initial-plan.md` - Original planning document
-- `docs/bachelors-specs.md` - Thesis specifications
+- `docs/SETUP.md` - Environment variables, authentication, secrets & Convex configuration
+- `docs/DEPLOYMENT.md` - Production deployment guide (Hetzner + Docker + Caddy + CI/CD)
+- `docs/CLAUDE.md` - Guidance for Claude Code AI assistant
+- `docs/bachelors-specs.md` - Thesis implementation specifications
+- `docs/bachelors-thesis-zadani.md` - Thesis assignment (Czech/English)
+- `docs/Scenarios-prompt-examples.md` - NL-to-CHQL example scenarios
+- `docs/antlr4/` - CHQL grammar definitions (lexer + parser)
