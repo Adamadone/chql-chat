@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "convex/_generated/api";
@@ -41,6 +43,7 @@ export function ChatSidebar({
   onSelectChat,
   user,
 }: ChatSidebarProps) {
+  const router = useRouter();
   const { signOut } = useAuthActions();
   const chats = useQuery(api.chats.list);
   const emptyChat = useQuery(api.chats.findEmpty);
@@ -97,12 +100,15 @@ export function ChatSidebar({
       <div className="flex h-full w-72 flex-col border-r border-border/60 bg-card/50 dark:bg-card/30">
         {/* Header */}
         <div className="flex h-14 items-center justify-between border-b border-border/60 px-4">
-          <div className="flex items-center gap-2.5 font-semibold text-sm">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 font-semibold text-sm transition-opacity duration-150 hover:opacity-70"
+          >
             <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <MessageSquare className="size-3" />
             </div>
             <span>CHQL Chat</span>
-          </div>
+          </Link>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -177,7 +183,7 @@ export function ChatSidebar({
                   size="icon-xs"
                   variant="ghost"
                   className="transition-transform duration-150 active:scale-90"
-                  onClick={() => void signOut()}
+                  onClick={() => void signOut().then(() => router.push("/"))}
                 >
                   <LogOut className="size-3.5" />
                 </Button>

@@ -1,11 +1,31 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useConvexAuth, useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { api } from "convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { MessageSquare, Shield, Zap, ArrowRight } from "lucide-react";
+import { MessageSquare, Shield, Zap, ArrowRight, LogOut } from "lucide-react";
+import { getInitials } from "@/utils/format";
 
 export function HeroSection() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const { signOut } = useAuthActions();
+  const user = useQuery(
+    api.users.currentUser,
+    isAuthenticated ? {} : "skip"
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Header */}
@@ -19,9 +39,36 @@ export function HeroSection() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button size="sm" asChild>
-              <Link href="/auth/signin">Sign in</Link>
-            </Button>
+            {!isLoading &&
+              (isAuthenticated && user ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                    <Avatar size="sm" className="cursor-pointer transition-opacity duration-150 hover:opacity-80">
+                      <AvatarImage src={user.image ?? undefined} />
+                      <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                        {getInitials(user.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={() => router.push("/chat")}>
+                      <MessageSquare className="size-4" />
+                      Chats
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => void signOut().then(() => router.push("/"))}
+                    >
+                      <LogOut className="size-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button size="sm" asChild>
+                  <Link href="/auth/signin">Sign in</Link>
+                </Button>
+              ))}
           </div>
         </div>
       </header>
@@ -43,10 +90,17 @@ export function HeroSection() {
           </p>
           <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
             <Button size="lg" className="shadow-sm" asChild>
-              <Link href="/auth/signin">
-                Get Started
-                <ArrowRight className="ml-1 size-4" />
-              </Link>
+              {isAuthenticated ? (
+                <Link href="/chat">
+                  Go to chats
+                  <ArrowRight className="ml-1 size-4" />
+                </Link>
+              ) : (
+                <Link href="/auth/signin">
+                  Get Started
+                  <ArrowRight className="ml-1 size-4" />
+                </Link>
+              )}
             </Button>
             <Button variant="outline" size="lg" asChild>
               <a
