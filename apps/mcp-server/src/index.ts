@@ -159,6 +159,16 @@ async function searchMeasurements(
     pageNumber,
   };
 
+  console.log("[DEBUG] chy.stat API request:", {
+    url: MEASUREMENTS_SEARCH_ENDPOINT,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiToken.slice(0, 6)}...${apiToken.slice(-4)}`,
+    },
+    body,
+  });
+
   const response = await fetch(MEASUREMENTS_SEARCH_ENDPOINT, {
     method: "POST",
     headers: {
@@ -169,6 +179,12 @@ async function searchMeasurements(
   });
 
   const data: unknown = await response.json().catch(() => response.text());
+
+  console.log("[DEBUG] chy.stat API response:", {
+    status: response.status,
+    statusText: response.statusText,
+    data: typeof data === "string" ? data.slice(0, 500) : JSON.stringify(data).slice(0, 500),
+  });
 
   return { data, status: response.status };
 }
