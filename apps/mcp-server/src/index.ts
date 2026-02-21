@@ -67,8 +67,8 @@ import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 
 // ─── chy.stat API Configuration ──────────────────────────────────────────────
 
-/** Base URL for the chy.stat demo instance. */
-const CHYSTAT_API_BASE = "https://demo.chystat.com";
+/** Base URL for the chy.stat staging instance. */
+const CHYSTAT_API_BASE = "https://demo.chystat.com:8443";
 
 /** Full endpoint for the measurements search API. */
 const MEASUREMENTS_SEARCH_ENDPOINT = `${CHYSTAT_API_BASE}/api/v2/measurements/search`;
