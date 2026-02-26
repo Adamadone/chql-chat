@@ -1,0 +1,40 @@
+{
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Edit|Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-auth-edits.sh\"",
+						"statusMessage": "Checking if file is auth-managed..."
+					},
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ui-guidelines-reminder.sh\"",
+						"statusMessage": "Checking UI guidelines applicability..."
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint-web.sh\"",
+						"timeout": 120,
+						"statusMessage": "Running ESLint check..."
+					},
+					{
+						"type": "command",
+						"command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/build-mcp.sh\"",
+						"timeout": 120,
+						"statusMessage": "Building MCP server..."
+					}
+				]
+			}
+		]
+	}
+}
