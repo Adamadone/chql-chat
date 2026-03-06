@@ -5,7 +5,6 @@ import { useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { MessageSquare } from "lucide-react";
 import type { Id, Doc } from "convex/_generated/dataModel";
 
@@ -32,10 +31,14 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
 
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [typewriterId, setTypewriterId] = useState<string | null>(null);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const initialLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
+
+  // Derive waiting state from server-side isProcessing flag (survives chat switches)
+  // combined with optimistic pendingMessage (covers the instant before server knows)
+  const isWaitingForResponse =
+    chat?.isProcessing === true || pendingMessage !== null;
 
   useEffect(() => {
     if (!messages) return;
@@ -50,33 +53,31 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
       const last = messages[messages.length - 1];
       lastMessageCountRef.current = messages.length;
 
+      // Clear optimistic pending bubble once the real user message arrives
       if (last.role === "user" && pendingMessage) {
         setPendingMessage(null);
       }
 
+      // Trigger typewriter for new assistant messages
       if (last.role === "assistant") {
-        if (last.interrupted) {
-          setIsWaitingForResponse(false);
-        } else {
+        if (!last.interrupted) {
           setTypewriterId(last._id);
-          setIsWaitingForResponse(false);
         }
       }
     }
   }, [messages, pendingMessage]);
 
+  // Reset UI-only state when switching chats
   useEffect(() => {
     initialLoadRef.current = true;
     lastMessageCountRef.current = 0;
     setPendingMessage(null);
     setTypewriterId(null);
-    setIsWaitingForResponse(false);
     setIsSending(false);
   }, [chatId]);
 
   const handleOptimisticSend = useCallback((content: string) => {
     setPendingMessage({ content, key: `pending-${Date.now()}` });
-    setIsWaitingForResponse(true);
   }, []);
 
   const handleTypewriterDone = useCallback(() => {
@@ -85,9 +86,6 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
 
   const handleSendingChange = useCallback((sending: boolean) => {
     setIsSending(sending);
-    if (!sending) {
-      setIsWaitingForResponse(false);
-    }
   }, []);
 
   const userMessageHistory = (messages ?? [])

@@ -88,6 +88,24 @@ export const findEmpty = query({
   },
 });
 
+export const setProcessing = mutation({
+  args: {
+    chatId: v.id("chats"),
+    isProcessing: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const chat = await ctx.db.get(args.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    await ctx.db.patch(args.chatId, {
+      isProcessing: args.isProcessing,
+    });
+  },
+});
+
 export const setActiveToolCall = mutation({
   args: {
     chatId: v.id("chats"),

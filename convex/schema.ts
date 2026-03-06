@@ -11,6 +11,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     activeToolCall: v.optional(v.string()),
+    isProcessing: v.optional(v.boolean()),
   })
     .index("by_user", ["userId"])
     .index("by_user_updated", ["userId", "updatedAt"]),

@@ -939,11 +939,15 @@ export const processMessage = action({
       return { success: false, error: "Chat not found or not authorized" };
 
     try {
-      // ── Step 2: Persist the user's message ─────────────────────────
+      // ── Step 2: Persist the user's message and mark chat as processing ─
       await ctx.runMutation(api.messages.send, {
         chatId: args.chatId,
         content: args.userMessage,
         role: "user",
+      });
+      await ctx.runMutation(api.chats.setProcessing, {
+        chatId: args.chatId,
+        isProcessing: true,
       });
 
       // ── Step 3: Load full chat history for context ─────────────────
@@ -996,6 +1000,10 @@ export const processMessage = action({
       });
       const lastMessage = latestMessages[latestMessages.length - 1];
       if (lastMessage?.interrupted) {
+        await ctx.runMutation(api.chats.setProcessing, {
+          chatId: args.chatId,
+          isProcessing: false,
+        });
         return { success: false, error: "Interrupted by user" };
       }
 
@@ -1026,6 +1034,11 @@ export const processMessage = action({
         metadata,
       });
 
+      await ctx.runMutation(api.chats.setProcessing, {
+        chatId: args.chatId,
+        isProcessing: false,
+      });
+
       return { success: true, response: finalResponse };
     } catch (error) {
       // ── Error recovery: persist error as an assistant message ─────
@@ -1046,6 +1059,16 @@ export const processMessage = action({
           "Failed to persist error message to database:",
           persistError,
         );
+      }
+
+      // Always clear processing flag, even on error
+      try {
+        await ctx.runMutation(api.chats.setProcessing, {
+          chatId: args.chatId,
+          isProcessing: false,
+        });
+      } catch {
+        // Best-effort cleanup
       }
 
       return { success: false, error: errorMessage };

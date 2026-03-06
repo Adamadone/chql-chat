@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Loader2 } from "lucide-react";
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -44,6 +45,14 @@ function GoogleIcon({ className }: { className?: string }) {
 
 export function SignInCard() {
   const { signIn } = useAuthActions();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleGitHubSignIn = () => {
+    setIsLoading(true);
+    signIn("github", { redirectTo: "/chat" }).catch(() => {
+      setIsLoading(false);
+    });
+  };
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
@@ -68,9 +77,14 @@ export function SignInCard() {
           <Button
             variant="outline"
             className="w-full justify-center gap-2"
-            onClick={() => void signIn("github", { redirectTo: "/chat" })}
+            disabled={isLoading}
+            onClick={handleGitHubSignIn}
           >
-            <GitHubIcon className="size-5" />
+            {isLoading ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <GitHubIcon className="size-5" />
+            )}
             Continue with GitHub
           </Button>
 
