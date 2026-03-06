@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bot, User, Loader2, ArrowDown, ChevronRight, Wrench } from "lucide-react";
+import { Bot, User, Loader2, ArrowDown, ChevronRight, Wrench, ShieldCheck, ShieldAlert, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ interface Message {
     apiResponse?: unknown;
     error?: string;
     toolCalls?: string[];
+    verificationScore?: number;
+    verificationDetails?: { totalValues: number; matchedValues: number };
   };
 }
 
@@ -166,6 +168,7 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
           <MarkdownContent content={message.content} />
         )}
         <ErrorBlock metadata={message.metadata} />
+        {!isUser && <VerificationBadge metadata={message.metadata} />}
       </div>
       {isUser && <UserAvatar user={user} />}
     </div>
@@ -193,6 +196,7 @@ function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps
           )}
         </div>
         <ErrorBlock metadata={message.metadata} />
+        {isDone && <VerificationBadge metadata={message.metadata} />}
       </div>
     </div>
   );
@@ -330,6 +334,78 @@ function ToolCallBlock({ metadata }: { metadata?: Message["metadata"] }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function VerificationBadge({ metadata }: { metadata?: Message["metadata"] }) {
+  const [expanded, setExpanded] = useState(false);
+  const score = metadata?.verificationScore;
+  const details = metadata?.verificationDetails;
+
+  // Only show badge when a tool was called and verification was performed
+  if (score === undefined || score === null) return null;
+  // Don't show badge if there were no values to verify (pure conversational response)
+  if (details && details.totalValues === 0) return null;
+
+  const pct = Math.round(score * 100);
+
+  let icon: React.ReactNode;
+  let colorClasses: string;
+  let label: string;
+
+  if (pct >= 90) {
+    icon = <ShieldCheck className="size-3" />;
+    colorClasses = "text-emerald-600 dark:text-emerald-400";
+    label = `Verified — ${pct}% match`;
+  } else if (pct >= 70) {
+    icon = <ShieldAlert className="size-3" />;
+    colorClasses = "text-amber-600 dark:text-amber-400";
+    label = `Partially verified — ${pct}% match`;
+  } else {
+    icon = <TriangleAlert className="size-3" />;
+    colorClasses = "text-orange-600 dark:text-orange-400";
+    label = `Low verification — ${pct}% match`;
+  }
+
+  const hasDetails = details && details.totalValues > 0;
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => hasDetails && setExpanded((prev) => !prev)}
+        className={cn(
+          "flex items-center gap-1.5 text-xs transition-colors",
+          colorClasses,
+          hasDetails && "hover:opacity-80"
+        )}
+      >
+        {icon}
+        <span>{label}</span>
+        {hasDetails && (
+          <ChevronRight
+            className={cn(
+              "size-3 transition-transform duration-200",
+              expanded && "rotate-90"
+            )}
+          />
+        )}
+      </button>
+      {hasDetails && (
+        <div
+          className={cn(
+            "grid transition-all duration-300 ease-out",
+            expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+          )}
+        >
+          <div className="overflow-hidden">
+            <p className="pt-1 text-[11px] text-muted-foreground">
+              {details.matchedValues}/{details.totalValues} data values from the API response found in the message.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
