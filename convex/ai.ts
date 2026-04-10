@@ -2,7 +2,7 @@
  * @module convex/ai — LLM + MCP Client Integration
  *
  * This is the core integration hub of the application. It acts as the **MCP client**
- * that bridges the Convex backend with both the Anthropic Claude LLM and the
+ * that bridges the Convex backend with both the LLM providers and the
  * external MCP server (which proxies the chy.stat API).
  *
  * ## Architecture
@@ -24,14 +24,25 @@
  *   └──────┬──────────────────────┬────────────────────┘
  *          │                      │
  *          ▼                      ▼
- *   ┌──────────────┐      ┌──────────────────┐
- *   │  Anthropic    │      │  MCP Server       │
- *   │  Claude API   │      │  (apps/mcp-server)│
- *   │              │      │                    │
- *   │  Tool-use    │─────▶│  search_           │──▶ chy.stat API
- *   │  responses   │      │  measurements      │
- *   └──────────────┘      └──────────────────┘
+ *   ┌──────────────┐       ┌────────────────────┐
+ *   │  LLM Provider│       │  MCP Server        │
+ *   │  (Anthropic, │       │  (apps/mcp-server) │
+ *   │   OpenAI,    │       │                    │
+ *   │   local)     │──────▶│  search_           │──▶ chy.stat API
+ *   │              │       │  measurements      │
+ *   └──────────────┘       └────────────────────┘
  * ```
+ *
+ * ## Provider Abstraction
+ *
+ * This module uses the **Vercel AI SDK** (`ai` package) to abstract LLM providers.
+ * The `getModel()` function returns the appropriate provider instance based on a
+ * model ID string (e.g. `"claude-opus-4-6"`, `"gpt-5.4"`, `"local/qwen3-4b"`).
+ *
+ * Supported providers:
+ * - **Anthropic** — Claude models via `@ai-sdk/anthropic`
+ * - **OpenAI** — GPT models via `@ai-sdk/openai`
+ * - **Local** — Self-hosted models via OpenAI-compatible API (e.g. vLLM)
  *
  * ## Request Lifecycle (processMessage)
  *
@@ -40,11 +51,11 @@
  * 3. Load full chat history for context
  * 4. Connect to the MCP server and discover available tools
  * 5. Build a system prompt (varies based on tool availability)
- * 6. Enter the multi-turn LLM loop ({@link runLLMWithTools}):
- *    a. Send chat history + tools to Claude
- *    b. If Claude requests a tool → execute it via MCP → feed result back
- *    c. Repeat up to {@link MAX_TOOL_ROUNDS} times
- *    d. Once Claude responds with text (no tool use) → return the response
+ * 6. Call `generateText()` with `maxSteps` for multi-turn tool use:
+ *    a. Send chat history + tools to the LLM
+ *    b. If the LLM requests a tool → execute it via MCP → feed result back
+ *    c. Repeat up to {@link MAX_TOOL_ROUNDS} steps
+ *    d. Once the LLM responds with text (no tool use) → return the response
  * 7. Check for user interruption
  * 8. Persist the assistant's response (with metadata: CHQL query, API response, tool calls)
  * 9. Clean up the MCP connection
@@ -52,25 +63,8 @@
  * ## Graceful Degradation
  *
  * If the MCP server is unreachable or fails to list tools, the action proceeds
- * without tools. The system prompt changes to inform Claude that the measurement
- * search tool is unavailable, and Claude responds conversationally.
- *
- * ## Prompt Caching
- *
- * This module uses Anthropic's **prompt caching** to reduce cost and latency.
- * Three cache breakpoints are set (in the cache hierarchy order: tools → system → messages):
- *
- * 1. **Tool definitions** — The last tool is marked with `cache_control: { type: "ephemeral" }`.
- * 2. **System prompt** — The static CHQL reference block (~4000+ tokens) is marked for caching.
- * 3. **Conversation history** — The last message in the initial chat history is marked,
- *    so multi-turn conversations incrementally cache prior turns.
- *
- * Cache hits read tokens at 1/10th the base input cost. The 5-minute TTL is refreshed
- * on every hit, so the cache stays warm as long as the app receives regular traffic.
- *
- * Token usage with cache metrics is logged on every LLM call for observability.
- *
- * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+ * without tools. The system prompt changes to inform the LLM that the measurement
+ * search tool is unavailable, and the LLM responds conversationally.
  *
  * ## Exported Actions
  *
@@ -80,27 +74,30 @@
 
 "use node";
 
-import { v } from "convex/values";
-import { action } from "./_generated/server";
-import { api } from "./_generated/api";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {v} from "convex/values";
+import {action} from "./_generated/server";
+import {api} from "./_generated/api";
+import {getAuthUserId} from "@convex-dev/auth/server";
+import {generateText, jsonSchema, stepCountIs, type ToolSet} from "ai";
+import type {ModelMessage, SystemModelMessage} from "@ai-sdk/provider-utils";
+import {anthropic} from "@ai-sdk/anthropic";
+import {createOpenAI, openai} from "@ai-sdk/openai";
+import {Client} from "@modelcontextprotocol/sdk/client/index.js";
+import {StreamableHTTPClientTransport} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 /**
- * Maximum number of tool-use rounds per message.
+ * Maximum number of tool-use steps per message.
  *
- * Each "round" is one Claude response requesting a tool followed by the tool
+ * Each "step" is one LLM response requesting a tool followed by the tool
  * result being fed back. This prevents infinite loops if the LLM keeps
  * requesting tools without producing a final text response.
  */
 const MAX_TOOL_ROUNDS = 5;
 
-/** Claude model identifier used for both chat and title generation. */
-const CLAUDE_MODEL = "claude-opus-4-6";
+/** Default model identifier used for both chat and title generation. */
+const DEFAULT_MODEL = "claude-opus-4-6";
 
 /** Maximum tokens for chat responses. */
 const CHAT_MAX_TOKENS = 4096;
@@ -114,6 +111,48 @@ const TITLE_MAX_LENGTH = 40;
 /** Maximum character length for LLM-generated titles before truncation. */
 const LLM_TITLE_MAX_LENGTH = 60;
 
+/**
+ * Anthropic-specific provider option to enable prompt caching on a message or
+ * system block. Non-Anthropic providers ignore this field.
+ *
+ * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+ */
+const ANTHROPIC_CACHE_CONTROL = {
+  anthropic: { cacheControl: { type: "ephemeral" as const } },
+};
+
+// ─── Provider Factory ───────────────────────────────────────────────────────
+
+/**
+ * Returns the appropriate AI SDK model instance for a given model ID.
+ *
+ * Supported prefixes:
+ * - `claude-*` → Anthropic provider
+ * - `gpt-*` → OpenAI provider
+ * - `local/*` → OpenAI-compatible API (e.g. vLLM) at VLLM_BASE_URL
+ *
+ * @param modelId - Model identifier string
+ * @returns An AI SDK model instance ready for `generateText()`
+ */
+export function getModel(modelId: string) {
+  if (modelId.startsWith("claude-")) {
+    return anthropic(modelId);
+  }
+  if (modelId.startsWith("gpt-") || modelId.startsWith("o")) {
+    return openai(modelId);
+  }
+  if (modelId.startsWith("local/")) {
+    const baseURL = process.env.VLLM_BASE_URL;
+    if (!baseURL) throw new Error("VLLM_BASE_URL is not configured for local models");
+    const localProvider = createOpenAI({
+      baseURL,
+      apiKey: "not-needed",
+    });
+    return localProvider(modelId.replace("local/", ""));
+  }
+  throw new Error(`Unknown model: ${modelId}`);
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /**
@@ -122,7 +161,7 @@ const LLM_TITLE_MAX_LENGTH = 60;
  *
  * @see {@link processMessage} for where this is populated
  */
-interface ToolUseMetadata {
+export interface ToolUseMetadata {
   /** The CHQL query string generated by Claude (if `search_measurements` was called). */
   dslQuery?: string;
   /** Raw JSON response from the chy.stat API (if the tool call succeeded). */
@@ -141,15 +180,23 @@ interface ProcessMessageResult {
 }
 
 /** A simplified chat message used to build the conversation history for Claude. */
-interface ChatHistoryEntry {
+export interface ChatHistoryEntry {
   role: "user" | "assistant";
   content: string;
 }
 
+/** Token usage data aggregated across all steps. */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /** Return type for the {@link runLLMWithTools} function. */
-interface LLMResult {
+export interface LLMResult {
   response: string;
   metadata?: ToolUseMetadata;
+  usage: TokenUsage;
 }
 
 /**
@@ -250,7 +297,7 @@ async function createMCPClient(): Promise<Client> {
  *
  * @param client - The MCP client to disconnect
  */
-async function closeMCPClient(client: Client): Promise<void> {
+export async function closeMCPClient(client: Client): Promise<void> {
   try {
     await client.close();
   } catch (error) {
@@ -263,15 +310,15 @@ async function closeMCPClient(client: Client): Promise<void> {
  *
  * This encapsulates the two-step connection process (connect + listTools)
  * with graceful degradation:
- * - If connection fails → returns `{ client: null, tools: [] }`
- * - If connection succeeds but tool listing fails → disconnects and returns `{ client: null, tools: [] }`
- * - If both succeed → returns the connected client and Anthropic-formatted tools
+ * - If connection fails → returns `{ client: null, tools: {} }`
+ * - If connection succeeds but tool listing fails → disconnects and returns `{ client: null, tools: {} }`
+ * - If both succeed → returns the connected client and AI SDK tools
  *
- * @returns An object with the MCP client (or null) and the discovered tools array
+ * @returns An object with the MCP client (or null) and the discovered tools record
  */
-async function connectAndDiscoverTools(): Promise<{
+export async function connectAndDiscoverTools(): Promise<{
   client: Client | null;
-  tools: Anthropic.Messages.Tool[];
+  tools: ToolSet;
 }> {
   let client: Client | null = null;
 
@@ -282,11 +329,11 @@ async function connectAndDiscoverTools(): Promise<{
       "Failed to connect to MCP server, proceeding without tools:",
       connectError,
     );
-    return { client: null, tools: [] };
+    return { client: null, tools: {} };
   }
 
   try {
-    const tools = await getMCPToolsAsAnthropicTools(client);
+    const tools = await getMCPToolsAsAISDKTools(client);
     return { client, tools };
   } catch (toolListError) {
     console.error(
@@ -294,7 +341,7 @@ async function connectAndDiscoverTools(): Promise<{
       toolListError,
     );
     await closeMCPClient(client);
-    return { client: null, tools: [] };
+    return { client: null, tools: {} };
   }
 }
 
@@ -302,35 +349,38 @@ async function connectAndDiscoverTools(): Promise<{
 
 /**
  * Fetches the list of tools from the MCP server and converts them to
- * Anthropic's tool format, with prompt caching on the last tool.
+ * the Vercel AI SDK tool format.
  *
- * The MCP SDK returns tools with a `name`, `description`, and `inputSchema`.
- * This function maps them to the `Anthropic.Messages.Tool` shape expected by
- * the Claude API's `tools` parameter.
+ * The MCP SDK returns tools with a `name`, `description`, and `inputSchema`
+ * (JSON Schema). This function wraps each into an AI SDK `tool()` definition
+ * using `jsonSchema()` to pass the JSON Schema directly (no Zod conversion needed).
  *
- * The **last tool** in the array is marked with `cache_control: { type: "ephemeral" }`
- * so that all tool definitions are included in the cached prompt prefix. The cache
- * hierarchy is `tools` → `system` → `messages`, so caching the last tool means
- * the entire tools block is cached.
+ * Each tool's `execute` function delegates to {@link callMCPTool}.
  *
  * @param mcpClient - A connected MCP client
- * @returns An array of tools in Anthropic's format, with cache_control on the last one
- *
- * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+ * @returns A ToolSet record keyed by tool name
  */
-async function getMCPToolsAsAnthropicTools(
+async function getMCPToolsAsAISDKTools(
   mcpClient: Client,
-): Promise<Anthropic.Messages.Tool[]> {
-  const { tools } = await mcpClient.listTools();
-  return tools.map((tool, i) => ({
-    name: tool.name,
-    description: tool.description ?? "",
-    input_schema: tool.inputSchema as Anthropic.Messages.Tool.InputSchema,
-    // Mark the last tool with cache_control so the entire tools block is cached
-    ...(i === tools.length - 1
-      ? { cache_control: { type: "ephemeral" as const } }
-      : {}),
-  }));
+): Promise<ToolSet> {
+  const { tools: mcpTools } = await mcpClient.listTools();
+  const toolSet: ToolSet = {};
+
+  for (let i = 0; i < mcpTools.length; i++) {
+    const mcpTool = mcpTools[i];
+    const isLast = i === mcpTools.length - 1;
+    toolSet[mcpTool.name] = {
+      description: mcpTool.description ?? "",
+      inputSchema: jsonSchema(mcpTool.inputSchema as Parameters<typeof jsonSchema>[0]),
+      execute: async (args: Record<string, unknown>) => {
+        return await callMCPTool(mcpClient, mcpTool.name, args);
+      },
+      // Mark the last tool with cacheControl so the entire tools block is cached
+      ...(isLast ? { providerOptions: ANTHROPIC_CACHE_CONTROL } : {}),
+    };
+  }
+
+  return toolSet;
 }
 
 /**
@@ -509,36 +559,25 @@ kkey_value: NUMBER | STRING
 `;
 
 /**
- * Builds the system prompt for Claude based on tool availability.
+ * Builds the system prompt for the LLM based on tool availability.
  *
- * Returns an **array of text blocks** (not a plain string) so that the static
- * CHQL reference can be marked with `cache_control: { type: "ephemeral" }` for
- * Anthropic prompt caching.
- *
- * The prompt is split into two blocks:
- * 1. **Static block** (CHQL reference + rules) — cached, identical across all requests
- * 2. **Dynamic block** (tool availability) — not cached, varies per request
- *
- * The cache hierarchy is `tools` → `system` → `messages`. By caching the first
- * system block, all subsequent requests that share the same prefix (tools + static
- * system prompt) will read from cache at 1/10th the input token cost.
+ * Returns an array of `SystemModelMessage` blocks. The static CHQL reference
+ * block is marked with Anthropic's `cacheControl` via `providerOptions` so
+ * it qualifies for prompt caching (1/10th input cost on cache hits).
+ * Non-Anthropic providers simply ignore the `providerOptions` field.
  *
  * @param hasTools - Whether the MCP server provided any tools
- * @returns An array of system content blocks with cache_control on the static block
- *
- * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+ * @returns An array of system message blocks with cache control on the static block
  */
-function buildSystemPrompt(
-  hasTools: boolean,
-): Anthropic.Messages.TextBlockParam[] {
+export function buildSystemPrompt(hasTools: boolean): SystemModelMessage[] {
   const toolSection = hasTools
     ? `When the user asks a question that requires retrieving measurement data, use the search_measurements tool with a CHQL query.`
     : `The measurement search tool is currently unavailable. If the user asks to search for measurements, let them know the service is temporarily unavailable and to try again later. Do NOT simulate or fabricate tool calls, tool results, or measurement data.`;
 
   return [
     {
-      type: "text" as const,
-      text: `You are a helpful assistant that helps users query industrial measurement data from the chy.stat system.
+      role: "system",
+      content: `You are a helpful assistant that helps users query industrial measurement data from the chy.stat system.
 ${CHQL_REFERENCE}
 IMPORTANT RULES:
 - Only construct CHQL queries using the grammar provided above.
@@ -554,11 +593,11 @@ SCOPE RULES:
 - If the user asks about something clearly unrelated to measurement data, CHQL queries, K-key identifiers, or the chy.stat system (e.g. coding help, general knowledge, writing assistance, economics, politics), politely decline and remind them you can only help with measurement data queries.
 - Do NOT provide general knowledge, coding assistance, creative writing, or answers to questions unrelated to industrial measurements.
 - If the user's request is ambiguous, assume it relates to measurement data and ask for clarification.`,
-      cache_control: { type: "ephemeral" as const },
+      providerOptions: ANTHROPIC_CACHE_CONTROL,
     },
     {
-      type: "text" as const,
-      text: toolSection,
+      role: "system",
+      content: toolSection,
     },
   ];
 }
@@ -566,187 +605,131 @@ SCOPE RULES:
 // ─── LLM Tool-Use Loop ──────────────────────────────────────────────────────
 
 /**
- * Runs a multi-turn conversation with Claude that supports tool use.
+ * Runs a multi-turn conversation with the LLM that supports tool use.
  *
- * This is the core loop that powers the AI chat experience:
+ * Uses the Vercel AI SDK's `generateText()` with `maxSteps` to handle the
+ * iterative tool-use loop automatically. The AI SDK calls tools, feeds results
+ * back, and continues until the LLM produces a final text response or the
+ * step limit is reached.
  *
- * ```
- * for each round (up to MAX_TOOL_ROUNDS):
- *   1. Send messages + tools to Claude
- *   2. If Claude responds with text (stop_reason != "tool_use"):
- *      → Strip injected tags, return the response
- *   3. If Claude requests tool(s) (stop_reason == "tool_use"):
- *      a. Execute each tool call via MCP
- *      b. Record metadata (CHQL query, API response, tool names)
- *      c. Feed tool results back to Claude as tool_result messages
- *      d. Continue to next round
- * ```
+ * **Metadata capture**: During tool execution, the function captures
+ * observability metadata (CHQL query, API response, tool names) via the
+ * `onStepFinish` callback.
  *
- * If all rounds are exhausted without a final text response, a fallback
- * message is returned asking the user to rephrase their query.
- *
- * @param systemBlocks - System prompt as an array of text blocks with optional cache_control
- *                       (from {@link buildSystemPrompt}). The static CHQL reference block
- *                       is marked for prompt caching.
- * @param chatHistory - Full conversation history to provide context
- * @param tools - Available tools in Anthropic format (may be empty).
- *                The last tool is marked with cache_control for prompt caching.
- * @param mcpClient - Connected MCP client for tool execution (or `null` if unavailable)
- * @param onToolCall - Optional callback for real-time tool call status updates
- * @returns The final text response and optional metadata about tool usage
+ * @param systemPrompt - System prompt as an array of SystemModelMessage blocks
+ * @param chatHistory - Array of prior user/assistant messages
+ * @param tools - AI SDK ToolSet from MCP discovery
+ * @param modelId - Model identifier for the provider factory
+ * @param onToolCall - Optional callback for tool call status updates
+ * @returns The final text response and optional metadata
  */
-async function runLLMWithTools(
-  systemBlocks: Anthropic.Messages.TextBlockParam[],
+export async function runLLMWithTools(
+  systemPrompt: SystemModelMessage[],
   chatHistory: ChatHistoryEntry[],
-  tools: Anthropic.Messages.Tool[],
-  mcpClient: Client | null,
+  tools: ToolSet,
+  modelId: string,
   onToolCall?: OnToolCallCallback,
 ): Promise<LLMResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
+  const model = getModel(modelId);
 
-  const anthropic = new Anthropic({ apiKey });
-
-  // Build messages with cache_control on the last message in the initial history.
-  // This enables Anthropic prompt caching for multi-turn conversations: all prior
-  // messages are cached, and only the new user message is processed fresh on each turn.
-  const messages: Anthropic.Messages.MessageParam[] = chatHistory.map(
-    (m, i) => {
-      const isLast = i === chatHistory.length - 1;
-      return {
-        role: m.role,
-        content: isLast
-          ? [
-              {
-                type: "text" as const,
-                text: m.content,
-                cache_control: { type: "ephemeral" as const },
-              },
-            ]
-          : m.content,
-      };
-    },
-  );
+  // Build messages with cacheControl on the last message for Anthropic prompt
+  // caching. Non-Anthropic providers ignore providerOptions.
+  const messages: ModelMessage[] = chatHistory.map((m, i) => {
+    const isLast = i === chatHistory.length - 1;
+    return {
+      role: m.role,
+      content: m.content,
+      ...(isLast ? { providerOptions: ANTHROPIC_CACHE_CONTROL } : {}),
+    };
+  });
 
   let metadata: ToolUseMetadata | undefined;
 
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    // ── Step 1: Call Claude with the current conversation state ───────
-    const response = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: CHAT_MAX_TOKENS,
-      system: systemBlocks,
-      tools: tools.length > 0 ? tools : undefined,
-      messages,
-    });
-
-    // ── Cache performance logging ────────────────────────────────────
-    // Log token usage with cache metrics so we can verify prompt caching
-    // is working. Look for cache_read_input_tokens > 0 on the 2nd+ request.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cache fields not yet in SDK types
-    const usage = response.usage as any;
-    console.log(
-      `[LLM round ${round}] Token usage:`,
-      JSON.stringify({
-        input_tokens: usage.input_tokens,
-        output_tokens: usage.output_tokens,
-        cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
-        cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
-      }),
-    );
-
-    // ── Step 2: Check if Claude produced a final text response ───────
-    if (response.stop_reason !== "tool_use") {
-      await onToolCall?.(null);
-
-      const text = stripToolTags(
-        response.content
-          .filter(
-            (block): block is Anthropic.Messages.TextBlock =>
-              block.type === "text",
-          )
-          .map((block) => block.text)
-          .join("\n"),
+  const result = await generateText({
+    model,
+    system: systemPrompt,
+    messages,
+    tools: Object.keys(tools).length > 0 ? tools : undefined,
+    stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
+    maxOutputTokens: CHAT_MAX_TOKENS,
+    onStepFinish: async (step) => {
+      // Log token usage for observability
+      console.log(
+        `[LLM step] Token usage:`,
+        JSON.stringify({
+          input_tokens: step.usage.inputTokens,
+          output_tokens: step.usage.outputTokens,
+          total_tokens: step.usage.totalTokens,
+        }),
       );
 
-      return { response: text, metadata };
-    }
-
-    // ── Step 3: Claude requested tool use — extract tool_use blocks ──
-    const toolUseBlocks = response.content.filter(
-      (block): block is Anthropic.Messages.ToolUseBlock =>
-        block.type === "tool_use",
-    );
-
-    // Append Claude's response (including tool_use blocks) to the conversation
-    messages.push({ role: "assistant", content: response.content });
-
-    // ── Step 4: Execute each tool call and collect results ────────────
-    const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-
-    for (const toolUse of toolUseBlocks) {
-      let resultText: string;
-      let isError = false;
-
-      if (!mcpClient) {
-        // MCP client is unavailable — return an error for this tool call
-        resultText = "MCP server is not available. Cannot execute tool calls.";
-        isError = true;
-      } else {
-        try {
-          const toolArgs = toolUse.input as Record<string, unknown>;
-
-          // Track which tools were called (for the metadata.toolCalls array)
+      // Capture metadata from tool calls
+      if (step.toolCalls && step.toolCalls.length > 0) {
+        for (const toolCall of step.toolCalls) {
+          // Track tool names
           const existingCalls = metadata?.toolCalls ?? [];
           metadata = {
             ...metadata,
-            toolCalls: [...existingCalls, toolUse.name],
+            toolCalls: [...existingCalls, toolCall.toolName],
           };
 
-          // Notify the UI that a tool call is in progress
-          await onToolCall?.(toolUse.name);
+          // Notify UI about active tool call
+          await onToolCall?.(toolCall.toolName);
 
-          // Capture the CHQL query for observability
-          if (toolUse.name === "search_measurements" && toolArgs.query) {
-            metadata = { ...metadata, dslQuery: String(toolArgs.query) };
+          // Capture CHQL query for observability
+          if (
+            toolCall.toolName === "search_measurements" &&
+            toolCall.input &&
+            typeof toolCall.input === "object" &&
+            "query" in toolCall.input
+          ) {
+            metadata = {
+              ...metadata,
+              dslQuery: String((toolCall.input as Record<string, unknown>).query),
+            };
           }
-
-          // Execute the tool via MCP protocol
-          const result = await callMCPTool(mcpClient, toolUse.name, toolArgs);
-          resultText = result.text;
-          isError = result.isError;
-
-          // Capture the API response for observability
-          if (toolUse.name === "search_measurements") {
-            metadata = { ...metadata, apiResponse: resultText };
-          }
-        } catch (error) {
-          resultText = `Tool execution failed: ${error instanceof Error ? error.message : "Unknown error"}`;
-          isError = true;
-          metadata = { ...metadata, error: resultText };
         }
       }
 
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: resultText,
-        is_error: isError,
-      });
-    }
+      // Capture API response from tool results
+      if (step.toolResults && step.toolResults.length > 0) {
+        for (const toolResult of step.toolResults) {
+          if (
+            toolResult.toolName === "search_measurements" &&
+            toolResult.output
+          ) {
+            const resultObj = toolResult.output as { text: string; isError: boolean };
+            metadata = { ...metadata, apiResponse: resultObj.text };
+            if (resultObj.isError) {
+              metadata = { ...metadata, error: resultObj.text };
+            }
+          }
+        }
+      }
+    },
+  });
 
-    // Feed tool results back to Claude as a "user" message (per Anthropic API convention)
-    messages.push({ role: "user", content: toolResults });
-  }
-
-  // ── All rounds exhausted without a final response ──────────────────
   await onToolCall?.(null);
 
-  return {
-    response:
-      "I attempted to retrieve data but exceeded the maximum number of tool call attempts. Please try rephrasing your query.",
-    metadata,
+  const text = stripToolTags(result.text);
+
+  // Aggregate token usage across all steps
+  const usage: TokenUsage = {
+    inputTokens: result.usage.inputTokens ?? 0,
+    outputTokens: result.usage.outputTokens ?? 0,
+    totalTokens: result.usage.totalTokens ?? 0,
   };
+
+  if (!text) {
+    return {
+      response:
+        "I attempted to retrieve data but exceeded the maximum number of tool call attempts. Please try rephrasing your query.",
+      metadata,
+      usage,
+    };
+  }
+
+  return { response: text, metadata, usage };
 }
 
 // ─── Exported Actions ────────────────────────────────────────────────────────
@@ -762,7 +745,7 @@ async function runLLMWithTools(
  * 3. **Load chat history** — Fetch all messages for conversation context
  * 4. **MCP connection** — Connect to the MCP server and discover tools
  *    (gracefully degrades if the server is unreachable)
- * 5. **LLM loop** — Run the multi-turn tool-use loop with Claude
+ * 5. **LLM loop** — Run the multi-turn tool-use loop with the selected model
  * 6. **Interruption check** — Abort if the user interrupted while we were processing
  * 7. **Persist response** — Save the assistant's response with metadata
  * 8. **Cleanup** — Close the MCP connection and clear the active tool call indicator
@@ -772,12 +755,14 @@ async function runLLMWithTools(
  *
  * @param args.chatId - The ID of the chat to send the message in
  * @param args.userMessage - The user's natural language message
+ * @param args.modelId - Optional model ID (defaults to DEFAULT_MODEL)
  * @returns A result object with `success`, optional `response`, and optional `error`
  */
 export const processMessage = action({
   args: {
     chatId: v.id("chats"),
     userMessage: v.string(),
+    modelId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ProcessMessageResult> => {
     // ── Step 1: Authenticate and verify chat ownership ─────────────
@@ -816,14 +801,15 @@ export const processMessage = action({
       // ── Step 5: Run the LLM tool-use loop ──────────────────────────
       let finalResponse: string;
       let metadata: ToolUseMetadata | undefined;
+      const modelId = args.modelId ?? DEFAULT_MODEL;
 
       try {
-        const systemBlocks = buildSystemPrompt(tools.length > 0);
+        const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
         const result = await runLLMWithTools(
-          systemBlocks,
+          systemPrompt,
           chatHistory,
           tools,
-          mcpClient,
+          modelId,
           async (toolName) => {
             await ctx.runMutation(api.chats.setActiveToolCall, {
               chatId: args.chatId,
@@ -916,7 +902,7 @@ export const processMessage = action({
  * **Title generation strategy (in priority order):**
  * 1. If the chat already has a non-default title → return it unchanged
  * 2. If there are no messages or no user messages → return "New Chat"
- * 3. If `ANTHROPIC_API_KEY` is available → ask Claude for a 3-6 word summary
+ * 3. Ask the LLM for a 3-6 word summary
  * 4. Fallback → truncate the first user message to {@link TITLE_MAX_LENGTH} chars
  *
  * @param args.chatId - The ID of the chat to generate a title for
@@ -942,35 +928,22 @@ export const generateTitle = action({
     const firstUserMessage = messages.find((m) => m.role === "user");
     if (!firstUserMessage) return "New Chat";
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      // Fallback: truncate the first message as the title
-      const title = truncateTitle(firstUserMessage.content);
-      await ctx.runMutation(api.chats.updateTitle, {
-        chatId: args.chatId,
-        title,
-      });
-      return title;
-    }
-
     try {
-      const anthropic = new Anthropic({ apiKey });
-      const response = await anthropic.messages.create({
-        model: CLAUDE_MODEL,
-        max_tokens: TITLE_MAX_TOKENS,
+      const model = getModel(DEFAULT_MODEL);
+      const result = await generateText({
+        model,
+        maxOutputTokens: TITLE_MAX_TOKENS,
         system:
           "Generate a very short title (3-6 words, no quotes, no punctuation at end) summarizing the user's message. Reply with ONLY the title, nothing else.",
         messages: [{ role: "user", content: firstUserMessage.content }],
       });
 
-      const textBlock = response.content.find((b) => b.type === "text");
-      const title =
-        textBlock && textBlock.type === "text"
-          ? textBlock.text
-              .trim()
-              .replace(/['"]+/g, "")
-              .slice(0, LLM_TITLE_MAX_LENGTH)
-          : truncateTitle(firstUserMessage.content);
+      const title = result.text
+        ? result.text
+            .trim()
+            .replace(/['"]+/g, "")
+            .slice(0, LLM_TITLE_MAX_LENGTH)
+        : truncateTitle(firstUserMessage.content);
 
       await ctx.runMutation(api.chats.updateTitle, {
         chatId: args.chatId,

@@ -1,0 +1,80 @@
+[
+  {
+    "query": "Find all measurements for part with serial number 9647544",
+    "expectedChql": "K0014 = '9647544'",
+    "expectedKkeys": ["K0014"],
+    "category": "simple_lookup"
+  },
+  {
+    "query": "Show me bottle_diameter measurements from machine crowning_1",
+    "expectedChql": "K2002 = 'bottle_diameter' AND K4063 = 'crowning_1'",
+    "expectedKkeys": ["K2002", "K4063"],
+    "category": "multi_filter"
+  },
+  {
+    "query": "Find measurements of part bottle_0_7 from machines crowning_1 and crowning_2",
+    "expectedChql": "K1002 = 'bottle_0_7' AND (K4063 = 'crowning_1' OR K4063 = 'crowning_2')",
+    "expectedKkeys": ["K1002", "K4063"],
+    "category": "or_conditions"
+  },
+  {
+    "query": "Give me measurements of characteristic bottle_height that are out of tolerance",
+    "expectedChql": "K2002 = 'bottle_height' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+    "expectedKkeys": ["K2002"],
+    "category": "alarm_query"
+  },
+  {
+    "query": "Find all measurements without any alarms",
+    "expectedChql": "HAS NO ALARM",
+    "expectedKkeys": [],
+    "category": "alarm_query"
+  },
+  {
+    "query": "Show measurements from operation OP10",
+    "expectedChql": "K4062 = 'OP10'",
+    "expectedKkeys": ["K4062"],
+    "category": "simple_lookup"
+  },
+  {
+    "query": "Find values of parameter water_temperature from production batch 66540-ALE that are less than 80.5",
+    "expectedChql": "K0053 = '66540-ALE' AND K2002 = 'water_temperature' AND K0001 < 80.5",
+    "expectedKkeys": ["K0053", "K2002", "K0001"],
+    "category": "multi_filter"
+  },
+  {
+    "query": "Show all measurements for part number shaft",
+    "expectedChql": "K1001 = 'shaft'",
+    "expectedKkeys": ["K1001"],
+    "category": "simple_lookup"
+  },
+  {
+    "query": "Find measurements where the measured value is greater than 100",
+    "expectedChql": "K0001 > 100",
+    "expectedKkeys": ["K0001"],
+    "category": "simple_lookup"
+  },
+  {
+    "query": "Show me all measurements for parts part_a or part_b",
+    "expectedChql": "K1002 IN ('part_a', 'part_b')",
+    "expectedKkeys": ["K1002"],
+    "category": "or_conditions"
+  },
+  {
+    "query": "Find measurements of bottle_diameter where the value is between 10 and 20",
+    "expectedChql": "K2002 = 'bottle_diameter' AND K0001 >= 10 AND K0001 <= 20",
+    "expectedKkeys": ["K2002", "K0001"],
+    "category": "multi_filter"
+  },
+  {
+    "query": "Show measurements from machine crowning_1 for operation OP10 that have alarms",
+    "expectedChql": "K4063 = 'crowning_1' AND K4062 = 'OP10' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+    "expectedKkeys": ["K4063", "K4062"],
+    "category": "complex"
+  },
+  {
+    "query": "Find all measurements except those for characteristic test_param",
+    "expectedChql": "NOT K2002 = 'test_param'",
+    "expectedKkeys": ["K2002"],
+    "category": "negation"
+  }
+]
