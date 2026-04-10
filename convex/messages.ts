@@ -30,13 +30,6 @@ export const send = mutation({
         apiResponse: v.optional(v.any()),
         error: v.optional(v.string()),
         toolCalls: v.optional(v.array(v.string())),
-        verificationScore: v.optional(v.number()),
-        verificationDetails: v.optional(
-          v.object({
-            totalValues: v.number(),
-            matchedValues: v.number(),
-          })
-        ),
       })
     ),
   },
