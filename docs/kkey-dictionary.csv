@@ -1,0 +1,32 @@
+Level,K-key,Sample value,Sample value 2,Type,Meaning
+Part,K1001,3,4,String,Part code
+,K1002,IPA CHYSTAT,NEIPA YARVYN,String,Part description
+,K1008,IPA,NEIPA,String,Part type
+,K1044,1,2,Integer,ID of the product in the Product catalog
+Characteristic,K2001,"""10"",","""1""",String,Characteristic numeric code
+,K2002,"""filling_value"",","""water_consumption""",String,Characteristic code
+,K2004,0,,Integer,Characteristic type. 0 = continuous; 1 = attribute; 3 = ordinal; 4 = nominal; 31 = curve
+,K2005,4,2,Integer,Characteristic class (How improtant the characteristic is. 0-4; 0 = unimportant; 4 = critical)
+,K2009,270,250,Integer,Code of the measured quantity (length / diameter / surface roughness etc.)
+,K2022,3,,Integer,Number of decimal places
+,K2090,"""Specification"",","""Process""",String,"Whether the characteristic is a process parameter (""Process"") or a product specification characteristic (""Specification""). Process parameter relates to the manufacturing process (machine / environment). A specification characteristic relates to the manufactured product (conformity with the specification)."
+,K2092,"""Filling Value"",","""Water Consumption""",String,Characteristic name
+,K2100,0.495,2.150,Float,Target Value
+,K2101,0.495,2.100,Float,Nominal value (drawing measure)
+,K2110,"0.485,",2.000,Float,Lower specification limit
+,K2111,"0.505,",2.300,Float,Upper specification limit
+,K2116,"0.487,",,Float,Lower acceptance limit
+,K2117,"0.503,",,Float,Upper acceptance limit
+,K2120,1,,Integer,Lower specification limit type (1 = specification limit; 2 = physical (natural) limit
+,K2121,1,,Integer,Upper specification limit type (1 = specification limit; 2 = physical (natural) limit
+,K2142,"""l"",","""°C""",String,Unit Description
+,K2311,"""OP30"",","""OP10""",String,Operation code
+Value,K0001,"0.495,",82.294,Float,Measured value
+,K0004,"""2026-03-27T00:00:16+01:00"",",,Date,Timestamp of the value
+,K0010,4,2,Integer,ID of the operation in the Operation catalog
+,K0014,"""9891978"",","""9992087""",String,Piece identifier
+,K0053,"""68221-IPA"",","""68911-ALE""",String,Batch number
+Catalog,K4062,OP10,OP60,String,Operation code
+,K4063,Bottle Wash,Final Inspection,String,Operation name
+,K4112,IPA CHYSTAT,NEIPA YARVYN,String,Product name
+,K4113,IPA,NEIPA,String,Product type / category

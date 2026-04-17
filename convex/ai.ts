@@ -393,7 +393,7 @@ async function getMCPToolsAsAISDKTools(
  *
  * @param mcpClient - A connected MCP client
  * @param toolName - Name of the tool to invoke (e.g. `"search_measurements"`)
- * @param args - Tool arguments (e.g. `{ query: "K1001 = 'shaft'" }`)
+ * @param args - Tool arguments (e.g. `{ query: "K1001 = '3'" }`)
  * @returns An object with the combined text response and an error flag
  */
 async function callMCPTool(
@@ -446,7 +446,7 @@ It is defined by an ANTLR4 grammar. You MUST only generate queries that conform 
 - **Numbers**: Optional minus sign, one or more digits, optional decimal part.
   Examples: 42, -3, 80.5, 0.001
 - **Strings**: Enclosed in single quotes. Cannot contain single quotes inside.
-  Examples: 'shaft', 'bottle_diameter', '9647544', '2026-05-02T12:36:05+02:00'
+  Examples: 'IPA CHYSTAT', 'filling_value', '9891978', '2026-03-27T00:00:16+01:00'
 - **Comparison operators**: = (equals), < (less than), <= (less or equal), > (greater than), >= (greater or equal), LIKE (pattern match), =~ (regex match)
 - **Keywords** (case-insensitive): ALARM, ALL, AND, ANY, HAS, IN, IS, LIKE, MARK, MATCHES, NO, NOT, NULL, OR, VALUE, VALUES
 - **Grouping**: ( ) parentheses, , (comma for IN lists)
@@ -458,8 +458,8 @@ A CHQL query is composed of one or more **criteria**, which can be combined:
 
 1. **Simple criteria** (leaf nodes):
    - \`ALL\` — matches everything
-   - \`<K-key> <operator> <value>\` — comparison (e.g. \`K0001 > 80.5\`, \`K2002 = 'bottle_diameter'\`)
-   - \`<K-key> IN (<value>, <value>, ...)\` — set membership (e.g. \`K1002 IN ('part_a', 'part_b')\`)
+   - \`<K-key> <operator> <value>\` — comparison (e.g. \`K0001 > 80.5\`, \`K2002 = 'filling_value'\`)
+   - \`<K-key> IN (<value>, <value>, ...)\` — set membership (e.g. \`K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')\`)
    - \`<K-key> IS NULL\` — null check
    - \`HAS NO ALARM\` — no alarm present
    - \`HAS ALARM '<alarm_name>'\` — specific alarm (e.g. \`HAS ALARM 'valueOutsideSpecificationLimits'\`)
@@ -475,52 +475,91 @@ A CHQL query is composed of one or more **criteria**, which can be combined:
 
 ### Common K-key Identifiers
 
-Below are the most frequently used K-keys. If the user references a concept that maps to one of these, use the appropriate K-key. If you are unsure, ask the user.
+The chy.stat data model has three entity levels — **Part** (the manufactured product), **Characteristic** (a measurable property of a part), and **Value** (an individual measurement of a characteristic) — plus **Catalog** lookup tables. The K-key tables below are grouped accordingly. When the user's phrasing is ambiguous, use the group that matches the entity they are asking about. If you are unsure, ask the user.
 
-| K-key  | Meaning                       | Value type | Example                                    |
-|--------|-------------------------------|------------|--------------------------------------------|
-| K0001  | Measured value                | number     | K0001 < 80.5                               |
-| K0004  | Measurement date/time         | string     | K0004 >= '2026-05-02T06:00:00+02:00'       |
-| K0014  | Part serial number / ID       | string     | K0014 = '9647544'                          |
-| K0053  | Production batch / lot number | string     | K0053 = '66540-ALE'                        |
-| K1001  | Part number                   | string     | K1001 = 'shaft'                            |
-| K1002  | Part name / designation       | string     | K1002 = 'bottle_0_7'                       |
-| K2002  | Characteristic name           | string     | K2002 = 'bottle_diameter'                  |
-| K4062  | Operation name                | string     | K4062 = 'OP10'                             |
-| K4063  | Machine / device name         | string     | K4063 = 'crowning_1'                       |
+#### Part-level K-keys
+
+| K-key | Meaning                                  | Type    | Sample value   |
+|-------|------------------------------------------|---------|----------------|
+| K1001 | Part code                                | String  | '3'            |
+| K1002 | Part description                         | String  | 'IPA CHYSTAT'  |
+| K1008 | Part type                                | String  | 'IPA'          |
+| K1044 | ID of the product in the Product catalog | Integer | 1              |
+
+#### Characteristic-level K-keys
+
+| K-key | Meaning                                                                                                                   | Type    | Sample value    |
+|-------|---------------------------------------------------------------------------------------------------------------------------|---------|-----------------|
+| K2001 | Characteristic numeric code                                                                                               | String  | '10'            |
+| K2002 | Characteristic code                                                                                                       | String  | 'filling_value' |
+| K2004 | Characteristic type. 0 = continuous; 1 = attribute; 3 = ordinal; 4 = nominal; 31 = curve                                  | Integer | 0               |
+| K2005 | Characteristic class (how important the characteristic is. 0–4; 0 = unimportant; 4 = critical)                            | Integer | 4               |
+| K2009 | Code of the measured quantity (length / diameter / surface roughness etc.)                                                | Integer | 270             |
+| K2022 | Number of decimal places                                                                                                  | Integer | 3               |
+| K2090 | Whether the characteristic is a process parameter ('Process') or a product specification characteristic ('Specification') | String  | 'Specification' |
+| K2092 | Characteristic name                                                                                                       | String  | 'Filling Value' |
+| K2100 | Target value                                                                                                              | Float   | 0.495           |
+| K2101 | Nominal value (drawing measure)                                                                                           | Float   | 0.495           |
+| K2110 | Lower specification limit                                                                                                 | Float   | 0.485           |
+| K2111 | Upper specification limit                                                                                                 | Float   | 0.505           |
+| K2116 | Lower acceptance limit                                                                                                    | Float   | 0.487           |
+| K2117 | Upper acceptance limit                                                                                                    | Float   | 0.503           |
+| K2120 | Lower specification limit type (1 = specification limit; 2 = physical (natural) limit)                                    | Integer | 1               |
+| K2121 | Upper specification limit type (1 = specification limit; 2 = physical (natural) limit)                                    | Integer | 1               |
+| K2142 | Unit description                                                                                                          | String  | 'l'             |
+| K2311 | Operation code (on the characteristic)                                                                                    | String  | 'OP30'          |
+
+#### Value-level K-keys
+
+| K-key | Meaning                                      | Type    | Sample value                  |
+|-------|----------------------------------------------|---------|-------------------------------|
+| K0001 | Measured value                               | Float   | 0.495                         |
+| K0004 | Timestamp of the value                       | Date    | '2026-03-27T00:00:16+01:00'   |
+| K0010 | ID of the operation in the Operation catalog | Integer | 4                             |
+| K0014 | Piece identifier                             | String  | '9891978'                     |
+| K0053 | Batch number                                 | String  | '68221-IPA'                   |
+
+#### Catalog-level K-keys
+
+| K-key | Meaning                 | Type   | Sample value   |
+|-------|-------------------------|--------|----------------|
+| K4062 | Operation code          | String | 'OP10'         |
+| K4063 | Operation name          | String | 'Bottle Wash'  |
+| K4112 | Product name            | String | 'IPA CHYSTAT'  |
+| K4113 | Product type / category | String | 'IPA'          |
 
 ### Query Construction Guidelines
 
-1. **String values** must ALWAYS be wrapped in single quotes: \`K2002 = 'bottle_diameter'\` (correct), NOT \`K2002 = bottle_diameter\` (wrong).
+1. **String values** must ALWAYS be wrapped in single quotes: \`K2002 = 'filling_value'\` (correct), NOT \`K2002 = filling_value\` (wrong).
 2. **Numeric values** are bare (no quotes): \`K0001 < 80.5\` (correct), NOT \`K0001 < '80.5'\` (wrong, unless comparing as string).
 3. **Date/time values** are strings in ISO 8601 format with timezone: \`K0004 >= '2026-05-02T06:00:00+02:00'\`.
-4. **Combining conditions**: Use AND/OR with parentheses for clarity: \`K1002 = 'bottle_0_7' AND (K4063 = 'crowning_1' OR K4063 = 'crowning_2')\`.
+4. **Combining conditions**: Use AND/OR with parentheses for clarity: \`K1002 = 'IPA CHYSTAT' AND (K4063 = 'Bottle Wash' OR K4063 = 'Final Inspection')\`.
 5. **Negation**: \`NOT K2002 = 'test'\` or \`NOT (K0001 > 100 AND K0001 < 200)\`.
 6. **Alarm queries**: \`HAS ALARM 'valueOutsideSpecificationLimits'\` for out-of-tolerance, \`HAS NO ALARM\` for measurements without alarms.
 
 ### Example Queries
 
-Below are examples mapping natural language requests to correct CHQL queries:
+Below are examples mapping natural language requests to correct CHQL queries. Values are drawn from the K-key tables above:
 
-**Example 1**: "Find all measured values for part with ID 9647544"
-→ \`K0014 = '9647544'\`
+**Example 1**: "Find all measured values for piece with ID 9891978"
+→ \`K0014 = '9891978'\`
 
-**Example 2**: "Find all measurements of characteristic bottle_diameter from the last hour"
-→ \`K2002 = 'bottle_diameter' AND K0004 >= '2026-05-02T12:36:05+02:00' AND K0004 < '2026-05-02T13:36:05+02:00'\`
+**Example 2**: "Find all measurements of characteristic filling_value from the last hour"
+→ \`K2002 = 'filling_value' AND K0004 >= '2026-05-02T12:36:05+02:00' AND K0004 < '2026-05-02T13:36:05+02:00'\`
 (Note: replace timestamps with actual current time calculations)
 
-**Example 3**: "Find measurements of part bottle_0_7 from machines crowning_1 and crowning_2"
-→ \`K1002 = 'bottle_0_7' AND (K4063 = 'crowning_1' OR K4063 = 'crowning_2')\`
+**Example 3**: "Find measurements of part IPA CHYSTAT from operations Bottle Wash and Final Inspection"
+→ \`K1002 = 'IPA CHYSTAT' AND (K4063 = 'Bottle Wash' OR K4063 = 'Final Inspection')\`
 
-**Example 4**: "Give me measurements of characteristic bottle_height that are out of tolerance"
-→ \`K2002 = 'bottle_height' AND HAS ALARM 'valueOutsideSpecificationLimits'\`
+**Example 4**: "Give me measurements of characteristic water_consumption that are out of tolerance"
+→ \`K2002 = 'water_consumption' AND HAS ALARM 'valueOutsideSpecificationLimits'\`
 
 **Example 5**: "Show measurements from operation OP10 from the current shift"
 → \`K4062 = 'OP10' AND K0004 >= '2026-05-02T06:00:00+02:00' AND K0004 < '2026-05-02T13:36:05+02:00'\`
 (Note: shift boundaries depend on the factory's shift schedule)
 
-**Example 6**: "Find values of parameter water_temperature from production batch 66540-ALE that are less than 80.5"
-→ \`K0053 = '66540-ALE' AND K2002 = 'water_temperature' AND K0001 < 80.5\`
+**Example 6**: "Find values of characteristic water_consumption from production batch 68221-IPA that are less than 80.5"
+→ \`K0053 = '68221-IPA' AND K2002 = 'water_consumption' AND K0001 < 80.5\`
 
 ### ANTLR4 Grammar (Formal Specification)
 
@@ -569,7 +608,7 @@ kkey_value: NUMBER | STRING
  * @param hasTools - Whether the MCP server provided any tools
  * @returns An array of system message blocks with cache control on the static block
  */
-export function buildSystemPrompt(hasTools: boolean): SystemModelMessage[] {
+export function buildSystemPrompt(hasTools: boolean, timeZone?: string): SystemModelMessage[] {
   const toolSection = hasTools
     ? `When the user asks a question that requires retrieving measurement data, use the search_measurements tool with a CHQL query.`
     : `The measurement search tool is currently unavailable. If the user asks to search for measurements, let them know the service is temporarily unavailable and to try again later. Do NOT simulate or fabricate tool calls, tool results, or measurement data.`;
@@ -598,6 +637,10 @@ SCOPE RULES:
     {
       role: "system",
       content: toolSection,
+    },
+    {
+      role: "system",
+      content: `The current UTC time (ISO 8601) is ${new Date().toISOString()}. The user's timezone is ${timeZone ?? "UTC"}. When the user says "today", "last hour", "this week", "current shift" and similar, interpret them in the user's local timezone and format the query value with the matching offset (e.g. '+02:00').`,
     },
   ];
 }
@@ -763,6 +806,7 @@ export const processMessage = action({
     chatId: v.id("chats"),
     userMessage: v.string(),
     modelId: v.optional(v.string()),
+    timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ProcessMessageResult> => {
     // ── Step 1: Authenticate and verify chat ownership ─────────────
@@ -804,7 +848,7 @@ export const processMessage = action({
       const modelId = args.modelId ?? DEFAULT_MODEL;
 
       try {
-        const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
+        const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0, args.timeZone);
         const result = await runLLMWithTools(
           systemPrompt,
           chatHistory,

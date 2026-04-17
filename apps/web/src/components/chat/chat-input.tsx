@@ -73,6 +73,7 @@ export function ChatInput({
       const result = await processMessage({
         chatId: targetChatId,
         userMessage: trimmed,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
       if (abortedRef.current) return;

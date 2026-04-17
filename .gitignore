@@ -36,3 +36,5 @@ coverage/
 
 apps/mcp-server/build/
 docs/RefactoringUI.md
+
+.claude
