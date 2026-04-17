@@ -53,9 +53,8 @@ const PRICING: Record<string, { input: number; output: number }> = {
   "claude-opus-4-6": { input: 15, output: 75 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 0.8, output: 4 },
-  // GPT-5.x pricing — update when available
-  "gpt-5.4": { input: 2.5, output: 10 },
-  "gpt-5.3": { input: 1, output: 4 },
+  "gpt-5.4": { input: 2.5, output: 15 },
+  "gpt-5.3": { input: 1.75, output: 14 },
 };
 
 function estimateCost(
