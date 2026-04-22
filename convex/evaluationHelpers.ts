@@ -7,7 +7,63 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { internalMutation, internalQuery, query } from "./_generated/server";
+
+// ─── Shared Aggregate Math ──────────────────────────────────────────────────
+
+/**
+ * Computes aggregate metrics over a set of eval result rows.
+ *
+ * Used by both `finalizeEvalRun` (end of a live run) and `rejudgeRun`
+ * (recomputing after historical rows have been repatched). Only attempt-1
+ * rows count toward rate/average metrics; cost includes every attempt.
+ */
+export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
+  const firstAttempts = results.filter((r) => r.attempt === 1);
+
+  let successCount = 0;
+  let toolUsageCount = 0;
+  let chqlParsesCount = 0;
+  let equivalenceCount = 0;
+  let kkeysCorrectCount = 0;
+  let totalResponseTime = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokensAll = 0;
+
+  for (const r of firstAttempts) {
+    if (r.success) successCount++;
+    if (r.metrics.usedTool) toolUsageCount++;
+    if (r.metrics.chqlParses) chqlParsesCount++;
+    if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
+    if (r.metrics.kkeysCorrect) kkeysCorrectCount++;
+    totalResponseTime += r.metrics.responseTimeMs;
+    totalInputTokens += r.metrics.inputTokens;
+    totalOutputTokens += r.metrics.outputTokens;
+    totalTokensAll += r.metrics.totalTokens;
+  }
+
+  let totalCost = 0;
+  for (const r of results) totalCost += r.metrics.costUsd ?? 0;
+
+  const n = firstAttempts.length || 1;
+  return {
+    aggregateMetrics: {
+      successRate: successCount / n,
+      avgResponseTimeMs: totalResponseTime / n,
+      avgInputTokens: totalInputTokens / n,
+      avgOutputTokens: totalOutputTokens / n,
+      avgTotalTokens: totalTokensAll / n,
+      totalCostUsd: totalCost,
+      chqlParsesRate: chqlParsesCount / n,
+      equivalenceRate: equivalenceCount / n,
+      toolUsageRate: toolUsageCount / n,
+    },
+    kkeysCorrectCount,
+    firstAttemptCount: firstAttempts.length,
+  };
+}
 
 // ─── Internal Mutations ─────────────────────────────────────────────────────
 
@@ -80,49 +136,8 @@ export const finalizeEvalRun = internalMutation({
       .withIndex("by_run", (q) => q.eq("runId", args.runId))
       .collect();
 
-    // Per-queryIndex attempt-1 rows drive rate/average metrics.
-    const firstAttempts = results.filter((r) => r.attempt === 1);
-
-    let successCount = 0;
-    let toolUsageCount = 0;
-    let chqlParsesCount = 0;
-    let equivalenceCount = 0;
-    let kkeysCorrectCount = 0;
-    let totalResponseTime = 0;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalTokensAll = 0;
-
-    for (const r of firstAttempts) {
-      if (r.success) successCount++;
-      if (r.metrics.usedTool) toolUsageCount++;
-      if (r.metrics.chqlParses) chqlParsesCount++;
-      if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
-      if (r.metrics.kkeysCorrect) kkeysCorrectCount++;
-      totalResponseTime += r.metrics.responseTimeMs;
-      totalInputTokens += r.metrics.inputTokens;
-      totalOutputTokens += r.metrics.outputTokens;
-      totalTokensAll += r.metrics.totalTokens;
-    }
-
-    // Cost includes both attempts (retries really do cost money).
-    let totalCost = 0;
-    for (const r of results) {
-      totalCost += r.metrics.costUsd ?? 0;
-    }
-
-    const n = firstAttempts.length || 1;
-    const aggregateMetrics = {
-      successRate: successCount / n,
-      avgResponseTimeMs: totalResponseTime / n,
-      avgInputTokens: totalInputTokens / n,
-      avgOutputTokens: totalOutputTokens / n,
-      avgTotalTokens: totalTokensAll / n,
-      totalCostUsd: totalCost,
-      chqlParsesRate: chqlParsesCount / n,
-      equivalenceRate: equivalenceCount / n,
-      toolUsageRate: toolUsageCount / n,
-    };
+    const { aggregateMetrics, kkeysCorrectCount, firstAttemptCount } =
+      computeAggregateMetrics(results);
 
     await ctx.db.patch(args.runId, {
       status: "completed",
@@ -131,7 +146,7 @@ export const finalizeEvalRun = internalMutation({
     });
 
     console.log(
-      `[Eval] Finalized run ${args.runId}: kkeysCorrectCount=${kkeysCorrectCount}/${n}, metrics=${JSON.stringify(aggregateMetrics)}`,
+      `[Eval] Finalized run ${args.runId}: kkeysCorrectCount=${kkeysCorrectCount}/${firstAttemptCount}, metrics=${JSON.stringify(aggregateMetrics)}`,
     );
   },
 });
@@ -168,6 +183,77 @@ export const insertEvalResult = internalMutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("evalResults", args);
+  },
+});
+
+/**
+ * Returns all result rows for a given run. Used by `rejudgeRun` to iterate
+ * historical rows without pulling them through the CSV export path.
+ */
+export const getResultsForRun = internalQuery({
+  args: { runId: v.id("evalRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("evalResults")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+  },
+});
+
+/**
+ * Patches a single eval result row. Called by `rejudgeRun` when the
+ * golden-set reference has changed since the row was recorded, or when
+ * the equivalence verdict needs correcting after the logic fix.
+ *
+ * `metrics` is replaced wholesale — caller must supply the full object.
+ */
+export const patchEvalResultFields = internalMutation({
+  args: {
+    resultId: v.id("evalResults"),
+    expectedChql: v.optional(v.string()),
+    expectedKkeys: v.optional(v.array(v.string())),
+    success: v.boolean(),
+    metrics: v.object({
+      responseTimeMs: v.number(),
+      inputTokens: v.number(),
+      outputTokens: v.number(),
+      totalTokens: v.number(),
+      costUsd: v.optional(v.number()),
+      usedTool: v.boolean(),
+      kkeysCorrect: v.optional(v.boolean()),
+      chqlParses: v.optional(v.boolean()),
+      chqlEquivalent: v.optional(
+        v.union(
+          v.literal("equivalent"),
+          v.literal("different"),
+          v.literal("expected_empty"),
+          v.literal("actual_error"),
+        ),
+      ),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { resultId, ...patch } = args;
+    await ctx.db.patch(resultId, patch);
+  },
+});
+
+/**
+ * Recomputes and patches a run's aggregateMetrics from its current rows.
+ * Unlike `finalizeEvalRun`, does not touch `status` or `completedAt` —
+ * the original completion time stays intact when rejudging historical data.
+ */
+export const recomputeRunAggregates = internalMutation({
+  args: { runId: v.id("evalRuns") },
+  handler: async (ctx, args) => {
+    const results = await ctx.db
+      .query("evalResults")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+
+    const { aggregateMetrics } = computeAggregateMetrics(results);
+    await ctx.db.patch(args.runId, { aggregateMetrics });
+    return aggregateMetrics;
   },
 });
 

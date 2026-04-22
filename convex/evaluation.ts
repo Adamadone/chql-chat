@@ -190,29 +190,38 @@ async function computeEquivalence(
   const actualHash = hashMCPResponseText(actualText.text);
   if (!actualHash) return "actual_error";
 
-  let expectedText: { text: string; isError: boolean };
+  // Two queries that produce the same row set are equivalent regardless of
+  // whether that set is empty. So we always try to compute expectedHash first,
+  // then compare hashes before falling back to "expected_empty" — otherwise
+  // identical-CHQL-against-no-data is misreported as unjudgeable.
+  let expectedHash: ReturnType<typeof hashMCPResponseText> | null = null;
+  let expectedFailed = false;
+
   try {
-    expectedText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
+    const expectedText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
       query: expectedChql,
       pageSize: EVAL_PAGE_SIZE,
     });
+    if (expectedText.isError) {
+      expectedFailed = true;
+      console.warn(
+        `[Eval] Expected CHQL returned isError for "${expectedChql}"`,
+      );
+    } else {
+      expectedHash = hashMCPResponseText(expectedText.text);
+    }
   } catch {
-    console.warn(
-      `[Eval] Expected CHQL fetch failed for "${expectedChql}" — treating as expected_empty`,
-    );
-    return "expected_empty";
-  }
-  if (expectedText.isError) {
-    console.warn(
-      `[Eval] Expected CHQL returned isError for "${expectedChql}" — treating as expected_empty`,
-    );
-    return "expected_empty";
+    expectedFailed = true;
+    console.warn(`[Eval] Expected CHQL fetch threw for "${expectedChql}"`);
   }
 
-  const expectedHash = hashMCPResponseText(expectedText.text);
-  if (!expectedHash || expectedHash.isEmpty) return "expected_empty";
-
-  return actualHash.hash === expectedHash.hash ? "equivalent" : "different";
+  if (expectedHash && actualHash.hash === expectedHash.hash) {
+    return "equivalent";
+  }
+  if (expectedFailed || !expectedHash || expectedHash.isEmpty) {
+    return "expected_empty";
+  }
+  return "different";
 }
 
 // ─── Exported Actions ───────────────────────────────────────────────────────
@@ -397,3 +406,166 @@ export const startEval = action({
     return { runId };
   },
 });
+
+/**
+ * Re-judges every row of an existing run against the current golden-set,
+ * using only the stored CHQL strings — no MCP, no LLM, no query execution.
+ *
+ * Handles:
+ *   1. Golden-set entries whose `expectedChql` was wrong and has since been
+ *      corrected in `eval/golden-set.json`. Rewrites the stored reference on
+ *      each row and re-derives `kkeysCorrect`.
+ *   2. `expected_empty` false-failures where `actualChql` === `expectedChql`
+ *      (the cases you reported). Identical CHQL → identical row sets by
+ *      construction, so we can confidently upgrade the verdict to
+ *      `"equivalent"` without running either query.
+ *
+ * Rows with textually-different CHQLs that might still be semantically
+ * equivalent are left with their stored verdict — judging those would
+ * require re-executing both queries against MCP. If you later need to
+ * recover those too, run the old MCP-based rejudge as a second pass.
+ *
+ * Recomputes aggregateMetrics; preserves `completedAt`.
+ */
+export const rejudgeRun = action({
+  args: {
+    runId: v.id("evalRuns"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    rowsScanned: number;
+    rowsReferenceUpdated: number;
+    rowsVerdictChanged: number;
+    aggregateMetrics: unknown;
+  }> => {
+    const queries = goldenSet as GoldenQuery[];
+    const goldenByQuery = new Map<
+      string,
+      { expectedChql: string; expectedKkeys: string[] }
+    >();
+    for (const q of queries) {
+      goldenByQuery.set(q.query, {
+        expectedChql: q.expectedChql,
+        expectedKkeys: q.expectedKkeys,
+      });
+    }
+
+    const results = await ctx.runQuery(
+      internal.evaluationHelpers.getResultsForRun,
+      { runId: args.runId },
+    );
+
+    console.log(
+      `[Rejudge] Run ${args.runId}: ${results.length} rows to examine`,
+    );
+
+    let rowsReferenceUpdated = 0;
+    let rowsVerdictChanged = 0;
+
+    for (const row of results) {
+      const golden = goldenByQuery.get(row.userQuery);
+      // If the query is no longer in the golden-set, fall back to the
+      // stored reference — we can still apply the identical-CHQL upgrade.
+      const currentExpectedChql =
+        golden?.expectedChql ?? row.expectedChql ?? "";
+      const currentExpectedKkeys =
+        golden?.expectedKkeys ?? row.expectedKkeys ?? [];
+
+      const referenceChanged =
+        golden !== undefined &&
+        (row.expectedChql !== currentExpectedChql ||
+          !kkeysSetsEqual(row.expectedKkeys ?? [], currentExpectedKkeys));
+
+      const actualChql = row.actualChql;
+
+      let newChqlEquivalent: ChqlEquivalent | undefined =
+        row.metrics.chqlEquivalent;
+
+      if (!actualChql) {
+        // No model output to judge.
+        newChqlEquivalent = "actual_error";
+      } else if (
+        currentExpectedChql &&
+        normalizeChql(actualChql) === normalizeChql(currentExpectedChql)
+      ) {
+        // Identical strings ⇒ identical row sets ⇒ equivalent, regardless
+        // of the stored verdict. Covers the expected_empty false-failures
+        // and any reference-fix where the model happened to produce the
+        // corrected CHQL.
+        newChqlEquivalent = "equivalent";
+      } else if (referenceChanged) {
+        // Text differs against a new reference — we can't judge without
+        // executing. Clear the old verdict to flag it.
+        newChqlEquivalent = undefined;
+      }
+      // Otherwise: reference unchanged and strings differ ⇒ keep stored verdict.
+
+      const newSuccess = newChqlEquivalent === "equivalent";
+
+      // Recompute kkeysCorrect against the (possibly new) reference.
+      let newKkeysCorrect: boolean | undefined = row.metrics.kkeysCorrect;
+      if (actualChql && currentExpectedKkeys.length > 0) {
+        const actualKkeys = extractKkeys(actualChql);
+        newKkeysCorrect = kkeysMatch(actualKkeys, currentExpectedKkeys);
+      } else if (currentExpectedKkeys.length === 0) {
+        newKkeysCorrect = undefined;
+      }
+
+      const verdictChanged =
+        row.metrics.chqlEquivalent !== newChqlEquivalent ||
+        row.success !== newSuccess;
+
+      if (!referenceChanged && !verdictChanged) continue;
+
+      if (referenceChanged) rowsReferenceUpdated++;
+      if (verdictChanged) rowsVerdictChanged++;
+
+      await ctx.runMutation(
+        internal.evaluationHelpers.patchEvalResultFields,
+        {
+          resultId: row._id,
+          expectedChql: currentExpectedChql,
+          expectedKkeys: currentExpectedKkeys,
+          success: newSuccess,
+          metrics: {
+            ...row.metrics,
+            kkeysCorrect: newKkeysCorrect,
+            chqlEquivalent: newChqlEquivalent,
+          },
+        },
+      );
+    }
+
+    const aggregateMetrics = await ctx.runMutation(
+      internal.evaluationHelpers.recomputeRunAggregates,
+      { runId: args.runId },
+    );
+
+    console.log(
+      `[Rejudge] Run ${args.runId} done: referenceUpdated=${rowsReferenceUpdated}, verdictChanged=${rowsVerdictChanged}, metrics=${JSON.stringify(aggregateMetrics)}`,
+    );
+
+    return {
+      rowsScanned: results.length,
+      rowsReferenceUpdated,
+      rowsVerdictChanged,
+      aggregateMetrics,
+    };
+  },
+});
+
+// Trim + collapse internal whitespace so `K0014 = '9891978'` and
+// `K0014='9891978'` compare equal. Anything more (quote/operator reordering)
+// would need the CHQL parser — unnecessary for this backfill.
+function normalizeChql(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
+}
+
+function kkeysSetsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const s = new Set(a);
+  for (const k of b) if (!s.has(k)) return false;
+  return true;
+}
