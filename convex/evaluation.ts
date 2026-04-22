@@ -12,7 +12,7 @@
  *
  * Trigger an eval from the Convex dashboard:
  * ```
- * api.evaluation.startEval({ modelId: "claude-opus-4-6" })
+ * api.evaluation.startEval({ modelId: "claude-opus-4-7" })
  * ```
  *
  * Export results:
@@ -66,9 +66,9 @@ const SEARCH_TOOL_NAME = "search_measurements";
  * Self-hosted models have zero marginal API cost.
  */
 const PRICING: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-6": { input: 15, output: 75 },
+  "claude-opus-4-7": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 0.8, output: 4 },
+  "claude-haiku-4-5": { input: 1, output: 5 },
   "gpt-5.4": { input: 2.5, output: 15 },
   "gpt-5.3-chat-latest": { input: 1.75, output: 14 },
 };

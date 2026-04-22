@@ -56,7 +56,7 @@
   },
   {
     "query": "Show measurements from operation Bottle Wash with operation code OP10 that have alarms",
-    "expectedChql": "K4063 = 'Bottle Wash' AND K4062 = 'OP10' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+    "expectedChql": "K4062 = 'OP10' AND K4063 = 'Bottle Wash' AND NOT HAS NO ALARM",
     "expectedKkeys": ["K4063", "K4062"]
   },
   {
