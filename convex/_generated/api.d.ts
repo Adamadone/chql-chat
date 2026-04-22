@@ -11,6 +11,11 @@
 import type * as ai from "../ai.js";
 import type * as auth from "../auth.js";
 import type * as chats from "../chats.js";
+import type * as chql_generated_CriteriaQueryAntlrLexer from "../chql/generated/CriteriaQueryAntlrLexer.js";
+import type * as chql_generated_CriteriaQueryAntlrParser from "../chql/generated/CriteriaQueryAntlrParser.js";
+import type * as chql_generated_CriteriaQueryAntlrParserListener from "../chql/generated/CriteriaQueryAntlrParserListener.js";
+import type * as chql_hash from "../chql/hash.js";
+import type * as chql_parse from "../chql/parse.js";
 import type * as evaluation from "../evaluation.js";
 import type * as evaluationHelpers from "../evaluationHelpers.js";
 import type * as http from "../http.js";
@@ -28,6 +33,11 @@ declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   auth: typeof auth;
   chats: typeof chats;
+  "chql/generated/CriteriaQueryAntlrLexer": typeof chql_generated_CriteriaQueryAntlrLexer;
+  "chql/generated/CriteriaQueryAntlrParser": typeof chql_generated_CriteriaQueryAntlrParser;
+  "chql/generated/CriteriaQueryAntlrParserListener": typeof chql_generated_CriteriaQueryAntlrParserListener;
+  "chql/hash": typeof chql_hash;
+  "chql/parse": typeof chql_parse;
   evaluation: typeof evaluation;
   evaluationHelpers: typeof evaluationHelpers;
   http: typeof http;

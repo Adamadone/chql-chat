@@ -43,9 +43,9 @@ export const updateEvalRunStatus = internalMutation({
         avgOutputTokens: v.number(),
         avgTotalTokens: v.number(),
         totalCostUsd: v.number(),
-        chqlValidityRate: v.number(),
+        chqlParsesRate: v.number(),
+        equivalenceRate: v.number(),
         toolUsageRate: v.number(),
-        goldenSetAccuracy: v.number(),
       }),
     ),
   },
@@ -58,12 +58,89 @@ export const updateEvalRunStatus = internalMutation({
   },
 });
 
+/**
+ * Computes aggregate metrics over an eval run's results and marks it completed.
+ *
+ * Called from the last scheduled `runQueryAction` in the chain. Uses only
+ * attempt-1 rows for rate/average calculations to preserve the semantics of
+ * the old synchronous runEval — retries still cost money (summed into
+ * totalCostUsd) but don't double-count for success rate.
+ *
+ * If a queryIndex is missing an attempt-1 row (shouldn't happen under normal
+ * flow, but guards against a dropped scheduler hop), it's skipped in the
+ * rate denominator.
+ */
+export const finalizeEvalRun = internalMutation({
+  args: {
+    runId: v.id("evalRuns"),
+  },
+  handler: async (ctx, args) => {
+    const results = await ctx.db
+      .query("evalResults")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+
+    // Per-queryIndex attempt-1 rows drive rate/average metrics.
+    const firstAttempts = results.filter((r) => r.attempt === 1);
+
+    let successCount = 0;
+    let toolUsageCount = 0;
+    let chqlParsesCount = 0;
+    let equivalenceCount = 0;
+    let kkeysCorrectCount = 0;
+    let totalResponseTime = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalTokensAll = 0;
+
+    for (const r of firstAttempts) {
+      if (r.success) successCount++;
+      if (r.metrics.usedTool) toolUsageCount++;
+      if (r.metrics.chqlParses) chqlParsesCount++;
+      if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
+      if (r.metrics.kkeysCorrect) kkeysCorrectCount++;
+      totalResponseTime += r.metrics.responseTimeMs;
+      totalInputTokens += r.metrics.inputTokens;
+      totalOutputTokens += r.metrics.outputTokens;
+      totalTokensAll += r.metrics.totalTokens;
+    }
+
+    // Cost includes both attempts (retries really do cost money).
+    let totalCost = 0;
+    for (const r of results) {
+      totalCost += r.metrics.costUsd ?? 0;
+    }
+
+    const n = firstAttempts.length || 1;
+    const aggregateMetrics = {
+      successRate: successCount / n,
+      avgResponseTimeMs: totalResponseTime / n,
+      avgInputTokens: totalInputTokens / n,
+      avgOutputTokens: totalOutputTokens / n,
+      avgTotalTokens: totalTokensAll / n,
+      totalCostUsd: totalCost,
+      chqlParsesRate: chqlParsesCount / n,
+      equivalenceRate: equivalenceCount / n,
+      toolUsageRate: toolUsageCount / n,
+    };
+
+    await ctx.db.patch(args.runId, {
+      status: "completed",
+      completedAt: Date.now(),
+      aggregateMetrics,
+    });
+
+    console.log(
+      `[Eval] Finalized run ${args.runId}: kkeysCorrectCount=${kkeysCorrectCount}/${n}, metrics=${JSON.stringify(aggregateMetrics)}`,
+    );
+  },
+});
+
 export const insertEvalResult = internalMutation({
   args: {
     runId: v.id("evalRuns"),
     queryIndex: v.number(),
     userQuery: v.string(),
-    category: v.string(),
     expectedChql: v.optional(v.string()),
     expectedKkeys: v.optional(v.array(v.string())),
     actualChql: v.optional(v.string()),
@@ -76,9 +153,17 @@ export const insertEvalResult = internalMutation({
       outputTokens: v.number(),
       totalTokens: v.number(),
       costUsd: v.optional(v.number()),
-      chqlValid: v.optional(v.boolean()),
       usedTool: v.boolean(),
       kkeysCorrect: v.optional(v.boolean()),
+      chqlParses: v.optional(v.boolean()),
+      chqlEquivalent: v.optional(
+        v.union(
+          v.literal("equivalent"),
+          v.literal("different"),
+          v.literal("expected_empty"),
+          v.literal("actual_error"),
+        ),
+      ),
     }),
   },
   handler: async (ctx, args) => {
@@ -97,7 +182,7 @@ export const exportResults = query({
   },
   handler: async (ctx, args) => {
     const header =
-      "model,query,category,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_valid,used_tool,kkeys_correct,expected_chql,actual_chql";
+      "model,query,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
 
     const rows: string[] = [header];
 
@@ -114,7 +199,6 @@ export const exportResults = query({
         const csvRow = [
           csvEscape(run.modelId),
           csvEscape(result.userQuery),
-          csvEscape(result.category),
           result.attempt,
           result.success,
           result.metrics.responseTimeMs,
@@ -122,7 +206,8 @@ export const exportResults = query({
           result.metrics.outputTokens,
           result.metrics.totalTokens,
           result.metrics.costUsd ?? "",
-          result.metrics.chqlValid ?? "",
+          result.metrics.chqlParses ?? "",
+          result.metrics.chqlEquivalent ?? "",
           result.metrics.usedTool,
           result.metrics.kkeysCorrect ?? "",
           csvEscape(result.expectedChql ?? ""),

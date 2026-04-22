@@ -20,6 +20,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { parseChql } from "../convex/chql/parse.js";
+import { hashMCPResponseText } from "../convex/chql/hash.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,13 +50,17 @@ interface GoldenQuery {
   query: string;
   expectedChql: string;
   expectedKkeys: string[];
-  category: string;
 }
+
+type ChqlEquivalent =
+  | "equivalent"
+  | "different"
+  | "expected_empty"
+  | "actual_error";
 
 interface EvalResult {
   queryIndex: number;
   userQuery: string;
-  category: string;
   expectedChql: string;
   expectedKkeys: string[];
   actualChql?: string;
@@ -66,9 +72,10 @@ interface EvalResult {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
-    chqlValid?: boolean;
     usedTool: boolean;
     kkeysCorrect?: boolean;
+    chqlParses?: boolean;
+    chqlEquivalent?: ChqlEquivalent;
   };
 }
 
@@ -84,12 +91,15 @@ interface EvalReport {
     avgInputTokens: number;
     avgOutputTokens: number;
     avgTotalTokens: number;
-    chqlValidityRate: number;
+    chqlParsesRate: number;
+    equivalenceRate: number;
     toolUsageRate: number;
-    goldenSetAccuracy: number;
   };
   results: EvalResult[];
 }
+
+const EVAL_PAGE_SIZE = 1000;
+const SEARCH_TOOL_NAME = "search_measurements";
 
 // ─── System Prompt (identical to convex/ai.ts) ─────────────────────────────
 
@@ -311,14 +321,47 @@ function extractKkeys(chql: string): string[] {
 }
 
 function kkeysMatch(actual: string[], expected: string[]): boolean {
-  if (actual.length !== expected.length) return false;
-  const sortedActual = [...actual].sort();
-  const sortedExpected = [...expected].sort();
-  return sortedActual.every((k, i) => k === sortedExpected[i]);
+  const a = new Set(actual);
+  const e = new Set(expected);
+  if (a.size !== e.size) return false;
+  for (const k of e) if (!a.has(k)) return false;
+  return true;
 }
 
-function normalizeChql(chql: string): string {
-  return chql.trim().replace(/\s+/g, " ").toUpperCase();
+async function computeEquivalence(
+  mcpClient: Client,
+  actualChql: string | undefined,
+  expectedChql: string,
+): Promise<ChqlEquivalent> {
+  if (!actualChql) return "actual_error";
+
+  let actualText: { text: string; isError: boolean };
+  try {
+    actualText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
+      query: actualChql,
+      pageSize: EVAL_PAGE_SIZE,
+    });
+  } catch {
+    return "actual_error";
+  }
+  if (actualText.isError) return "actual_error";
+  const actualHash = hashMCPResponseText(actualText.text);
+  if (!actualHash) return "actual_error";
+
+  let expectedText: { text: string; isError: boolean };
+  try {
+    expectedText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
+      query: expectedChql,
+      pageSize: EVAL_PAGE_SIZE,
+    });
+  } catch {
+    return "expected_empty";
+  }
+  if (expectedText.isError) return "expected_empty";
+  const expectedHash = hashMCPResponseText(expectedText.text);
+  if (!expectedHash || expectedHash.isEmpty) return "expected_empty";
+
+  return actualHash.hash === expectedHash.hash ? "equivalent" : "different";
 }
 
 // ─── Core Eval ──────────────────────────────────────────────────────────────
@@ -339,6 +382,7 @@ async function runSingleQuery(
   outputTokens: number;
   totalTokens: number;
   responseTimeMs: number;
+  chqlEquivalent: ChqlEquivalent;
 }> {
   const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
 
@@ -371,6 +415,12 @@ async function runSingleQuery(
   });
   const responseTimeMs = Date.now() - startTime;
 
+  const chqlEquivalent = await computeEquivalence(
+    mcpClient,
+    dslQuery,
+    queryEntry.expectedChql,
+  );
+
   return {
     response: stripToolTags(result.text),
     dslQuery,
@@ -379,6 +429,7 @@ async function runSingleQuery(
     outputTokens: result.usage.outputTokens ?? 0,
     totalTokens: result.usage.totalTokens ?? 0,
     responseTimeMs,
+    chqlEquivalent,
   };
 }
 
@@ -429,13 +480,13 @@ async function main() {
   const results: EvalResult[] = [];
   let successCount = 0;
   let toolUsageCount = 0;
-  let chqlValidCount = 0;
+  let chqlParsesCount = 0;
+  let equivalenceCount = 0;
   let kkeysCorrectCount = 0;
   let totalResponseTime = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalTokensAll = 0;
-  let goldenMatchCount = 0;
   let validResultCount = 0;
 
   const startedAt = new Date().toISOString();
@@ -453,7 +504,7 @@ async function main() {
 
         const usedTool = result.usedTool;
         const actualChql = result.dslQuery;
-        const chqlValid = usedTool && !!actualChql;
+        const chqlParses = actualChql ? parseChql(actualChql).ok : undefined;
 
         let kkeysCorrect: boolean | undefined;
         if (actualChql && queryEntry.expectedKkeys.length > 0) {
@@ -461,16 +512,11 @@ async function main() {
           kkeysCorrect = kkeysMatch(actualKkeys, queryEntry.expectedKkeys);
         }
 
-        const goldenMatch =
-          actualChql !== undefined &&
-          normalizeChql(actualChql) === normalizeChql(queryEntry.expectedChql);
-
-        const success = usedTool && chqlValid;
+        const success = result.chqlEquivalent === "equivalent";
 
         const evalResult: EvalResult = {
           queryIndex: i,
           userQuery: queryEntry.query,
-          category: queryEntry.category,
           expectedChql: queryEntry.expectedChql,
           expectedKkeys: queryEntry.expectedKkeys,
           actualChql,
@@ -482,9 +528,10 @@ async function main() {
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             totalTokens: result.totalTokens,
-            chqlValid,
             usedTool,
             kkeysCorrect,
+            chqlParses,
+            chqlEquivalent: result.chqlEquivalent,
           },
         };
         results.push(evalResult);
@@ -493,9 +540,9 @@ async function main() {
           validResultCount++;
           if (success) successCount++;
           if (usedTool) toolUsageCount++;
-          if (chqlValid) chqlValidCount++;
+          if (chqlParses) chqlParsesCount++;
+          if (result.chqlEquivalent === "equivalent") equivalenceCount++;
           if (kkeysCorrect) kkeysCorrectCount++;
-          if (goldenMatch) goldenMatchCount++;
           totalResponseTime += result.responseTimeMs;
           totalInputTokens += result.inputTokens;
           totalOutputTokens += result.outputTokens;
@@ -515,7 +562,6 @@ async function main() {
         results.push({
           queryIndex: i,
           userQuery: queryEntry.query,
-          category: queryEntry.category,
           expectedChql: queryEntry.expectedChql,
           expectedKkeys: queryEntry.expectedKkeys,
           attempt,
@@ -526,6 +572,7 @@ async function main() {
             outputTokens: 0,
             totalTokens: 0,
             usedTool: false,
+            chqlEquivalent: "actual_error",
           },
         });
 
@@ -553,9 +600,9 @@ async function main() {
       avgInputTokens: totalInputTokens / n,
       avgOutputTokens: totalOutputTokens / n,
       avgTotalTokens: totalTokensAll / n,
-      chqlValidityRate: chqlValidCount / n,
+      chqlParsesRate: chqlParsesCount / n,
+      equivalenceRate: equivalenceCount / n,
       toolUsageRate: toolUsageCount / n,
-      goldenSetAccuracy: goldenMatchCount / n,
     },
     results,
   };
@@ -571,9 +618,9 @@ async function main() {
   console.log(`📊 Eval Results: ${config.model}`);
   console.log(`${"═".repeat(60)}`);
   console.log(`   Success rate:      ${(report.aggregateMetrics.successRate * 100).toFixed(1)}%`);
-  console.log(`   CHQL validity:     ${(report.aggregateMetrics.chqlValidityRate * 100).toFixed(1)}%`);
+  console.log(`   CHQL parses:       ${(report.aggregateMetrics.chqlParsesRate * 100).toFixed(1)}%`);
+  console.log(`   Equivalence:       ${(report.aggregateMetrics.equivalenceRate * 100).toFixed(1)}%`);
   console.log(`   Tool usage:        ${(report.aggregateMetrics.toolUsageRate * 100).toFixed(1)}%`);
-  console.log(`   Golden set match:  ${(report.aggregateMetrics.goldenSetAccuracy * 100).toFixed(1)}%`);
   console.log(`   Avg response time: ${report.aggregateMetrics.avgResponseTimeMs.toFixed(0)}ms`);
   console.log(`   Avg total tokens:  ${report.aggregateMetrics.avgTotalTokens.toFixed(0)}`);
   console.log(`${"═".repeat(60)}`);

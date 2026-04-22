@@ -2,79 +2,66 @@
   {
     "query": "Find all measurements for piece with ID 9891978",
     "expectedChql": "K0014 = '9891978'",
-    "expectedKkeys": ["K0014"],
-    "category": "simple_lookup"
+    "expectedKkeys": ["K0014"]
   },
   {
     "query": "Show me filling_value measurements from operation Bottle Wash",
     "expectedChql": "K2002 = 'filling_value' AND K4063 = 'Bottle Wash'",
-    "expectedKkeys": ["K2002", "K4063"],
-    "category": "multi_filter"
+    "expectedKkeys": ["K2002", "K4063"]
   },
   {
     "query": "Find measurements of part IPA CHYSTAT from operations Bottle Wash and Final Inspection",
     "expectedChql": "K1002 = 'IPA CHYSTAT' AND (K4063 = 'Bottle Wash' OR K4063 = 'Final Inspection')",
-    "expectedKkeys": ["K1002", "K4063"],
-    "category": "or_conditions"
+    "expectedKkeys": ["K1002", "K4063"]
   },
   {
     "query": "Give me measurements of characteristic filling_value that are out of tolerance",
     "expectedChql": "K2002 = 'filling_value' AND HAS ALARM 'valueOutsideSpecificationLimits'",
-    "expectedKkeys": ["K2002"],
-    "category": "alarm_query"
+    "expectedKkeys": ["K2002"]
   },
   {
     "query": "Find all measurements without any alarms",
     "expectedChql": "HAS NO ALARM",
-    "expectedKkeys": [],
-    "category": "alarm_query"
+    "expectedKkeys": []
   },
   {
     "query": "Show measurements from operation code OP10",
     "expectedChql": "K4062 = 'OP10'",
-    "expectedKkeys": ["K4062"],
-    "category": "simple_lookup"
+    "expectedKkeys": ["K4062"]
   },
   {
     "query": "Find values of characteristic water_consumption from production batch 68221-IPA that are less than 80.5",
     "expectedChql": "K0053 = '68221-IPA' AND K2002 = 'water_consumption' AND K0001 < 80.5",
-    "expectedKkeys": ["K0053", "K2002", "K0001"],
-    "category": "multi_filter"
+    "expectedKkeys": ["K0053", "K2002", "K0001"]
   },
   {
     "query": "Show all measurements for part code 3",
     "expectedChql": "K1001 = '3'",
-    "expectedKkeys": ["K1001"],
-    "category": "simple_lookup"
+    "expectedKkeys": ["K1001"]
   },
   {
     "query": "Find measurements where the measured value is greater than 0.5",
     "expectedChql": "K0001 > 0.5",
-    "expectedKkeys": ["K0001"],
-    "category": "simple_lookup"
+    "expectedKkeys": ["K0001"]
   },
   {
     "query": "Show me all measurements for parts IPA CHYSTAT or NEIPA YARVYN",
     "expectedChql": "K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')",
-    "expectedKkeys": ["K1002"],
-    "category": "or_conditions"
+    "expectedKkeys": ["K1002"]
   },
   {
     "query": "Find measurements of filling_value where the value is between 0.49 and 0.50",
     "expectedChql": "K2002 = 'filling_value' AND K0001 >= 0.49 AND K0001 <= 0.50",
-    "expectedKkeys": ["K2002", "K0001"],
-    "category": "multi_filter"
+    "expectedKkeys": ["K2002", "K0001"]
   },
   {
     "query": "Show measurements from operation Bottle Wash with operation code OP10 that have alarms",
     "expectedChql": "K4063 = 'Bottle Wash' AND K4062 = 'OP10' AND HAS ALARM 'valueOutsideSpecificationLimits'",
-    "expectedKkeys": ["K4063", "K4062"],
-    "category": "complex"
+    "expectedKkeys": ["K4063", "K4062"]
   },
   {
     "query": "Find all measurements except those for characteristic filling_value",
     "expectedChql": "NOT K2002 = 'filling_value'",
-    "expectedKkeys": ["K2002"],
-    "category": "negation"
+    "expectedKkeys": ["K2002"]
   }
 ]

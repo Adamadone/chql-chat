@@ -8,9 +8,10 @@
     "merge": "tsx merge-results.ts"
   },
   "dependencies": {
-    "ai": "^6.0.0",
     "@ai-sdk/openai": "^3.0.0",
-    "@modelcontextprotocol/sdk": "^1.26.0"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "ai": "^6.0.0",
+    "antlr4ng": "^3.0.16"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

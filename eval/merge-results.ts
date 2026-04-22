@@ -47,7 +47,6 @@ interface LocalEvalReport {
   results: Array<{
     queryIndex: number;
     userQuery: string;
-    category: string;
     expectedChql: string;
     expectedKkeys: string[];
     actualChql?: string;
@@ -58,7 +57,8 @@ interface LocalEvalReport {
       inputTokens: number;
       outputTokens: number;
       totalTokens: number;
-      chqlValid?: boolean;
+      chqlParses?: boolean;
+      chqlEquivalent?: "equivalent" | "different" | "expected_empty" | "actual_error";
       usedTool: boolean;
       kkeysCorrect?: boolean;
     };
@@ -75,7 +75,7 @@ function csvEscape(value: string): string {
 }
 
 const CSV_HEADER =
-  "model,query,category,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_valid,used_tool,kkeys_correct,expected_chql,actual_chql";
+  "model,query,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
@@ -112,7 +112,6 @@ function main() {
       const row = [
         csvEscape(report.modelId),
         csvEscape(result.userQuery),
-        csvEscape(result.category),
         result.attempt,
         result.success,
         result.metrics.responseTimeMs,
@@ -120,7 +119,8 @@ function main() {
         result.metrics.outputTokens,
         result.metrics.totalTokens,
         "", // cost_usd — N/A for self-hosted
-        result.metrics.chqlValid ?? "",
+        result.metrics.chqlParses ?? "",
+        result.metrics.chqlEquivalent ?? "",
         result.metrics.usedTool,
         result.metrics.kkeysCorrect ?? "",
         csvEscape(result.expectedChql ?? ""),

@@ -92,6 +92,19 @@ const MCP_PORT = parseInt(process.env.MCP_PORT ?? "3001", 10);
 /** Maximum number of concurrent MCP sessions allowed. */
 const MAX_SESSIONS = 100;
 
+/**
+ * Max time a session may sit idle before the reaper closes it.
+ *
+ * Why: the HTTP transport has no heartbeat, so a client that dies mid-request
+ * (network drop, process crash, OOM) leaves its session in `transports`
+ * forever. Without a reaper, `MAX_SESSIONS` fills up from stale entries and
+ * the server starts returning 503 "at capacity".
+ */
+const SESSION_IDLE_TIMEOUT_MS = 10 * 60_000;
+
+/** How often the reaper runs. */
+const SESSION_SWEEP_INTERVAL_MS = 60_000;
+
 /** Maximum request body size accepted by Express. */
 const REQUEST_BODY_LIMIT = "1mb";
 
@@ -458,15 +471,20 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
  *
  * @param transports - Map of active session ID → transport pairs
  */
-function createPostHandler(transports: Map<string, StreamableHTTPServerTransport>) {
+function createPostHandler(
+  transports: Map<string, StreamableHTTPServerTransport>,
+  lastActivity: Map<string, number>,
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
       let transport: StreamableHTTPServerTransport;
+      let activeSessionId: string;
 
       if (sessionId && transports.has(sessionId)) {
         // Existing session — route to its transport
         transport = transports.get(sessionId)!;
+        activeSessionId = sessionId;
       } else if (!sessionId) {
         // New session — check capacity, then create
         if (transports.size >= MAX_SESSIONS) {
@@ -482,16 +500,19 @@ function createPostHandler(transports: Map<string, StreamableHTTPServerTransport
         transports.set(newSessionId, transport);
         transport.onclose = () => {
           transports.delete(newSessionId);
+          lastActivity.delete(newSessionId);
         };
 
         const server = createMcpServer();
         await server.connect(transport);
+        activeSessionId = newSessionId;
       } else {
         // Session ID provided but not found (expired or invalid)
         res.status(404).json({ error: "Session not found" });
         return;
       }
 
+      lastActivity.set(activeSessionId, Date.now());
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
       console.error("Error handling POST /mcp:", error);
@@ -510,7 +531,10 @@ function createPostHandler(transports: Map<string, StreamableHTTPServerTransport
  *
  * @param transports - Map of active session ID → transport pairs
  */
-function createGetHandler(transports: Map<string, StreamableHTTPServerTransport>) {
+function createGetHandler(
+  transports: Map<string, StreamableHTTPServerTransport>,
+  lastActivity: Map<string, number>,
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -521,6 +545,7 @@ function createGetHandler(transports: Map<string, StreamableHTTPServerTransport>
       }
 
       const transport = transports.get(sessionId)!;
+      lastActivity.set(sessionId, Date.now());
       await transport.handleRequest(req, res);
     } catch (error) {
       console.error("Error handling GET /mcp:", error);
@@ -539,7 +564,10 @@ function createGetHandler(transports: Map<string, StreamableHTTPServerTransport>
  *
  * @param transports - Map of active session ID → transport pairs
  */
-function createDeleteHandler(transports: Map<string, StreamableHTTPServerTransport>) {
+function createDeleteHandler(
+  transports: Map<string, StreamableHTTPServerTransport>,
+  lastActivity: Map<string, number>,
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -552,6 +580,7 @@ function createDeleteHandler(transports: Map<string, StreamableHTTPServerTranspo
       const transport = transports.get(sessionId)!;
       await transport.close();
       transports.delete(sessionId);
+      lastActivity.delete(sessionId);
       res.status(200).json({ message: "Session closed" });
     } catch (error) {
       console.error("Error handling DELETE /mcp:", error);
@@ -609,9 +638,34 @@ async function startHttpTransport(): Promise<void> {
   /** Active MCP sessions keyed by their UUID session ID. */
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
-  app.post("/mcp", createPostHandler(transports));
-  app.get("/mcp", createGetHandler(transports));
-  app.delete("/mcp", createDeleteHandler(transports));
+  /** Last-activity timestamp per session, updated on every POST/GET. */
+  const lastActivity = new Map<string, number>();
+
+  app.post("/mcp", createPostHandler(transports, lastActivity));
+  app.get("/mcp", createGetHandler(transports, lastActivity));
+  app.delete("/mcp", createDeleteHandler(transports, lastActivity));
+
+  // ── Stale-session reaper ───────────────────────────────────────────────
+  //
+  // Periodically closes transports that have been idle longer than
+  // SESSION_IDLE_TIMEOUT_MS. transport.close() triggers the onclose handler
+  // registered in createPostHandler, which removes the entries from both maps.
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sessionId, transport] of transports) {
+      const last = lastActivity.get(sessionId) ?? 0;
+      if (now - last > SESSION_IDLE_TIMEOUT_MS) {
+        console.error(
+          `[reaper] closing idle session ${sessionId} (idle ${now - last}ms)`,
+        );
+        transport.close().catch((err) => {
+          console.error(`[reaper] failed to close ${sessionId}:`, err);
+          transports.delete(sessionId);
+          lastActivity.delete(sessionId);
+        });
+      }
+    }
+  }, SESSION_SWEEP_INTERVAL_MS).unref();
 
   // ── Health check (unauthenticated) ─────────────────────────────────────
 

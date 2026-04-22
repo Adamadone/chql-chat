@@ -396,7 +396,7 @@ async function getMCPToolsAsAISDKTools(
  * @param args - Tool arguments (e.g. `{ query: "K1001 = '3'" }`)
  * @returns An object with the combined text response and an error flag
  */
-async function callMCPTool(
+export async function callMCPTool(
   mcpClient: Client,
   toolName: string,
   args: Record<string, unknown>,
