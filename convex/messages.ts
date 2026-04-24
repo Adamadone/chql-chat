@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { MAX_USER_MESSAGE_CHARS } from "./constants";
 
 export const list = query({
   args: { chatId: v.id("chats") },
@@ -39,6 +40,10 @@ export const send = mutation({
 
     const chat = await ctx.db.get(args.chatId);
     if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    if (args.role === "user" && args.content.length > MAX_USER_MESSAGE_CHARS) {
+      throw new Error(`Message too long (max ${MAX_USER_MESSAGE_CHARS} characters).`);
+    }
 
     await ctx.db.patch(args.chatId, { updatedAt: Date.now() });
 

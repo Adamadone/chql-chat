@@ -132,6 +132,7 @@ export function ChatInput({
           placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
           className="block w-full resize-none bg-transparent px-4 pt-3 pb-12 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           rows={3}
+          maxLength={8000}
           disabled={isSending}
         />
         <div className="absolute right-2.5 bottom-2.5">

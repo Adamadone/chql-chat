@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "eval": "tsx run-local.ts",
+    "eval": "dotenvx run -f ../.env.local -- tsx run-local.ts",
     "merge": "tsx merge-results.ts"
   },
   "dependencies": {
@@ -14,6 +14,7 @@
     "antlr4ng": "^3.0.16"
   },
   "devDependencies": {
+    "@dotenvx/dotenvx": "^1.52.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

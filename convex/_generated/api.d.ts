@@ -16,6 +16,7 @@ import type * as chql_generated_CriteriaQueryAntlrParser from "../chql/generated
 import type * as chql_generated_CriteriaQueryAntlrParserListener from "../chql/generated/CriteriaQueryAntlrParserListener.js";
 import type * as chql_hash from "../chql/hash.js";
 import type * as chql_parse from "../chql/parse.js";
+import type * as constants from "../constants.js";
 import type * as evaluation from "../evaluation.js";
 import type * as evaluationHelpers from "../evaluationHelpers.js";
 import type * as http from "../http.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   "chql/generated/CriteriaQueryAntlrParserListener": typeof chql_generated_CriteriaQueryAntlrParserListener;
   "chql/hash": typeof chql_hash;
   "chql/parse": typeof chql_parse;
+  constants: typeof constants;
   evaluation: typeof evaluation;
   evaluationHelpers: typeof evaluationHelpers;
   http: typeof http;
