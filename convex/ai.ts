@@ -37,7 +37,7 @@
  *
  * This module uses the **Vercel AI SDK** (`ai` package) to abstract LLM providers.
  * The `getModel()` function returns the appropriate provider instance based on a
- * model ID string (e.g. `"claude-opus-4-7"`, `"gpt-5.4"`, `"local/qwen3-4b"`).
+ * model ID string (e.g. `"claude-haiku-4-5"`, `"gpt-5.4"`, `"local/qwen3-4b"`).
  *
  * Supported providers:
  * - **Anthropic** — Claude models via `@ai-sdk/anthropic`
@@ -99,7 +99,7 @@ import {MAX_USER_MESSAGE_CHARS} from "./constants";
 const MAX_TOOL_ROUNDS = 5;
 
 /** Default model identifier used for both chat and title generation. */
-const DEFAULT_MODEL = "claude-opus-4-7";
+const DEFAULT_MODEL = "claude-haiku-4-5";
 
 /** Maximum tokens for chat responses. */
 const CHAT_MAX_TOKENS = 4096;

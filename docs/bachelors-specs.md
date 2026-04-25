@@ -4,7 +4,7 @@
 - **Language:** TypeScript (backend & frontend)
 - **Database:** Convex
 - **Authentication:** Convex Auth (`@convex-dev/auth`) with GitHub OAuth
-- **LLM:** Anthropic Claude (claude-opus-4-7) with native tool use API
+- **LLM:** Anthropic Claude (claude-haiku-4-5) with native tool use API
 - **MCP:** Model Context Protocol — TypeScript SDK, Streamable HTTP transport
 - **DSL:** CHQL (chy.stat Query Language) — text-based grammar defined in ANTLR4
 - **Target API:** chy.stat v2 measurements search (`POST /api/v2/measurements/search`)

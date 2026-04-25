@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "eval": "dotenvx run -f ../.env.local -- tsx run-local.ts",
-    "merge": "tsx merge-results.ts"
+    "merge": "tsx merge-results.ts",
+    "aggregate": "tsx aggregate-summary.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",

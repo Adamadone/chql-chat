@@ -309,6 +309,39 @@ export const exportResults = query({
 });
 
 /**
+ * Returns per-run aggregate metrics for the given run IDs, in the same order.
+ * Used by the aggregate-summary script to build the side-by-side thesis table
+ * without re-executing any queries — the numbers here are already finalized
+ * by `finalizeEvalRun`.
+ */
+export const exportAggregates = query({
+  args: {
+    runIds: v.array(v.id("evalRuns")),
+  },
+  handler: async (ctx, args) => {
+    const out = [];
+    for (const runId of args.runIds) {
+      const run = await ctx.db.get(runId);
+      if (!run) {
+        out.push({ runId, found: false as const });
+        continue;
+      }
+      out.push({
+        runId,
+        found: true as const,
+        modelId: run.modelId,
+        status: run.status,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+        totalQueries: run.totalQueries,
+        aggregateMetrics: run.aggregateMetrics,
+      });
+    }
+    return out;
+  },
+});
+
+/**
  * Lists all eval runs, optionally filtered by model.
  */
 export const listRuns = query({
