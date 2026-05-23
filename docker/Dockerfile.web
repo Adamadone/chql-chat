@@ -4,11 +4,18 @@ WORKDIR /app
 
 ARG NEXT_PUBLIC_CONVEX_URL
 
+# Web depends on convex/ (aliased in tsconfig), and convex/ai.ts imports
+# @chql-chat/chql-core. The Next.js type-check phase needs chql-core
+# resolvable, so install + build it alongside the web workspace.
 COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
-RUN npm ci --workspace=apps/web
+COPY packages/chql-core/package*.json ./packages/chql-core/
+RUN npm ci --workspace=apps/web --workspace=packages/chql-core --ignore-scripts
 
 COPY tsconfig.base.json ./
+COPY packages/chql-core ./packages/chql-core
+RUN npm run build -w packages/chql-core
+
 COPY convex ./convex
 COPY apps/web ./apps/web
 
