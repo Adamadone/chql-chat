@@ -6,15 +6,11 @@ ARG NEXT_PUBLIC_CONVEX_URL
 
 COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
-COPY packages/shared/package*.json ./packages/shared/
-RUN npm ci --workspace=@chql/shared --workspace=apps/web
+RUN npm ci --workspace=apps/web
 
 COPY tsconfig.base.json ./
-COPY packages/shared ./packages/shared
 COPY convex ./convex
 COPY apps/web ./apps/web
-
-RUN npm run build --workspace=@chql/shared
 
 ENV NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
 WORKDIR /app/apps/web

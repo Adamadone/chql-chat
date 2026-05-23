@@ -184,7 +184,7 @@ defenses and benchmarking models against the CHQL golden set.
 Three intentional defense layers (see `docs/CLAUDE.md` and `convex/ai.ts`):
 
 1. **Hard constraints** — ANTLR-based CHQL syntactic validation
-   (`convex/chql/parse.ts`), allowlisted endpoint (measurements/search only),
+   (`packages/chql-core/src/parse.ts`), allowlisted endpoint (measurements/search only),
    output shaping in the MCP server.
 2. **Context hygiene** — system prompt marks API responses as untrusted data,
    XML delimiters between instructions and tool output, message length cap

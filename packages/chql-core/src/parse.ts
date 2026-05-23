@@ -1,5 +1,5 @@
 /**
- * @module convex/chql/parse — CHQL syntactic validator
+ * @module @chql-chat/chql-core/parse — CHQL syntactic validator
  *
  * Thin wrapper over the ANTLR-generated lexer + parser. Returns a boolean-ish
  * result so callers don't need to understand ANTLR's error model.

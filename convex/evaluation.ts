@@ -30,12 +30,16 @@ import { internal } from "./_generated/api";
 import {
   connectAndDiscoverTools,
   closeMCPClient,
-  buildSystemPrompt,
   runLLMWithTools,
   callMCPTool,
 } from "./ai";
-import { parseChql } from "./chql/parse";
-import { hashMCPResponseText } from "./chql/hash";
+import {
+  buildSystemPrompt,
+  parseChql,
+  hashMCPResponseText,
+  extractKkeys,
+  kkeysMatch,
+} from "@chql-chat/chql-core";
 import goldenSet from "../eval/golden-set.json";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -81,21 +85,6 @@ function estimateCost(
   const pricing = PRICING[modelId];
   if (!pricing) return undefined;
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
-}
-
-// ─── K-key Extraction ───────────────────────────────────────────────────────
-
-function extractKkeys(chql: string): string[] {
-  const matches = chql.match(/K[X]?\d+/g);
-  return matches ? [...new Set(matches)] : [];
-}
-
-function kkeysMatch(actual: string[], expected: string[]): boolean {
-  const a = new Set(actual);
-  const e = new Set(expected);
-  if (a.size !== e.size) return false;
-  for (const k of e) if (!a.has(k)) return false;
-  return true;
 }
 
 // ─── Core Eval Logic ────────────────────────────────────────────────────────

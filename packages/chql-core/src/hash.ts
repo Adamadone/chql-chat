@@ -1,5 +1,5 @@
 /**
- * @module convex/chql/hash — Row-set hashing for chy.stat responses
+ * @module @chql-chat/chql-core/hash — Row-set hashing for chy.stat responses
  *
  * Used by the eval pipeline to decide whether two CHQL queries are
  * functionally equivalent: we hash the set of `(K1000, K2000, K0000)`
@@ -10,8 +10,11 @@
  * response shows the same K0000 under filling_value and chilling for
  * the same piece/timestamp — so we include K2000 (and K1000 for
  * belt-and-suspenders).
+ *
+ * Note: imports `node:crypto`. Consumers must run in a Node-compatible
+ * runtime — Convex actions with `"use node"` on the consuming file, or
+ * direct Node/tsx. Not consumable from Convex V8 functions.
  */
-"use node"
 
 import { createHash } from "node:crypto";
 
