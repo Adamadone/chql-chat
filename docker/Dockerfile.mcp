@@ -2,19 +2,21 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install deps for the mcp-server workspace AND its sibling chql-core workspace
-# (which provides shared SearchEnvelope types). Skip lifecycle scripts so
-# chql-core's `prepare: tsc` doesn't run before its sources are in place.
+# chql-core is a devDependency of mcp-server (its types are imported via
+# `import type`, which TS erases at compile time — no runtime import).
+# To build, we still need chql-core's dist/ for tsc to resolve the types.
+#
+# Order matters: copy chql-core SOURCES before npm ci, so chql-core's
+# `prepare: tsc` hook has files to compile when npm runs it.
 COPY package*.json ./
 COPY apps/mcp-server/package*.json ./apps/mcp-server/
 COPY packages/chql-core/package*.json ./packages/chql-core/
-RUN npm ci --workspace=apps/mcp-server --workspace=packages/chql-core --ignore-scripts
-
-# Build chql-core first so its dist/ exists when the MCP server's tsc resolves
-# the @chql-chat/chql-core import.
 COPY tsconfig.base.json ./
 COPY packages/chql-core ./packages/chql-core
-RUN npm run build -w packages/chql-core
+
+# npm ci installs deps for both workspaces and, via the workspace symlink,
+# runs chql-core's prepare hook (tsc) which produces packages/chql-core/dist.
+RUN npm ci --workspace=apps/mcp-server --workspace=packages/chql-core
 
 COPY apps/mcp-server ./apps/mcp-server
 WORKDIR /app/apps/mcp-server
@@ -29,16 +31,14 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 mcpserver && \
     adduser --system --uid 1001 mcpserver
 
-# Same workspace setup as builder, minus dev deps. The chql-core package.json
-# is required for npm to create the workspace symlink under node_modules.
+# Runtime stage: chql-core is NOT installed. The compiled MCP server JS
+# (apps/mcp-server/build/) contains no `require("@chql-chat/chql-core")`
+# because every import from it was `import type`. --omit=dev cleanly skips
+# chql-core (now a devDep) so we avoid running its prepare hook here.
 COPY package*.json ./
 COPY apps/mcp-server/package*.json ./apps/mcp-server/
-COPY packages/chql-core/package*.json ./packages/chql-core/
-RUN npm ci --workspace=apps/mcp-server --workspace=packages/chql-core --omit=dev --ignore-scripts
+RUN npm ci --workspace=apps/mcp-server --omit=dev
 
-# Compiled artifacts: chql-core's dist is what the MCP server imports at runtime
-# via the workspace symlink (packages/chql-core/dist/index.js).
-COPY --from=builder --chown=mcpserver:mcpserver /app/packages/chql-core/dist ./packages/chql-core/dist
 COPY --from=builder --chown=mcpserver:mcpserver /app/apps/mcp-server/build ./apps/mcp-server/build
 
 USER mcpserver

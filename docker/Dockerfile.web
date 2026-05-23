@@ -4,17 +4,18 @@ WORKDIR /app
 
 ARG NEXT_PUBLIC_CONVEX_URL
 
-# Web depends on convex/ (aliased in tsconfig), and convex/ai.ts imports
-# @chql-chat/chql-core. The Next.js type-check phase needs chql-core
-# resolvable, so install + build it alongside the web workspace.
+# The web app's runtime never imports chql-core, but Next.js's build phase
+# type-checks convex/ (aliased in tsconfig.json), and convex/ai.ts imports
+# @chql-chat/chql-core. So chql-core's dist/ must exist before `next build`.
+#
+# Order matters: copy chql-core SOURCES before npm ci so chql-core's
+# `prepare: tsc` hook can produce packages/chql-core/dist during install.
 COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
 COPY packages/chql-core/package*.json ./packages/chql-core/
-RUN npm ci --workspace=apps/web --workspace=packages/chql-core --ignore-scripts
-
 COPY tsconfig.base.json ./
 COPY packages/chql-core ./packages/chql-core
-RUN npm run build -w packages/chql-core
+RUN npm ci --workspace=apps/web --workspace=packages/chql-core
 
 COPY convex ./convex
 COPY apps/web ./apps/web
