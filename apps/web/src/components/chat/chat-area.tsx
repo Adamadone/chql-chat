@@ -130,6 +130,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
         <div className="min-h-0 flex-1 px-4 py-6"/>
       ) : (
         <ChatMessages
+          chatId={chatId}
           messages={messages}
           user={user}
           pendingMessage={pendingMessage}

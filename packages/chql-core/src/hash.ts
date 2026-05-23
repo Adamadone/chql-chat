@@ -46,17 +46,34 @@ export function hashResultSet(raw: unknown): HashResult {
   const tuples: Array<[number, number, number]> = [];
 
   const root = isRecord(raw) ? raw : {};
-  const parts = Array.isArray(root.parts) ? (root.parts as Part[]) : [];
 
-  for (const part of parts) {
-    const k1000 = typeof part.K1000 === "number" ? part.K1000 : -1;
-    const chars = Array.isArray(part.characteristics) ? part.characteristics : [];
-    for (const ch of chars) {
-      const k2000 = typeof ch.K2000 === "number" ? ch.K2000 : -1;
-      const values = Array.isArray(ch.values) ? ch.values : [];
-      for (const v of values) {
-        const k0000 = typeof v.K0000 === "number" ? v.K0000 : -1;
-        tuples.push([k1000, k2000, k0000]);
+  // New shape: the MCP server wraps responses in a SearchEnvelope whose
+  // `rows` array is already flattened — each row carries K1000/K2000/K0000
+  // propagated from its parent part/characteristic. Detect by presence of
+  // `rowCount` + `rows`.
+  if (typeof root.rowCount === "number" && Array.isArray(root.rows)) {
+    for (const row of root.rows as Array<Record<string, unknown>>) {
+      if (!isRecord(row)) continue;
+      const k1000 = typeof row.K1000 === "number" ? row.K1000 : -1;
+      const k2000 = typeof row.K2000 === "number" ? row.K2000 : -1;
+      const k0000 = typeof row.K0000 === "number" ? row.K0000 : -1;
+      tuples.push([k1000, k2000, k0000]);
+    }
+  } else {
+    // Legacy shape: raw aqdef-json with nested parts → characteristics → values.
+    // Kept for backwards compatibility with any caller that still receives
+    // unwrapped responses (e.g. older stored fixtures, direct API tests).
+    const parts = Array.isArray(root.parts) ? (root.parts as Part[]) : [];
+    for (const part of parts) {
+      const k1000 = typeof part.K1000 === "number" ? part.K1000 : -1;
+      const chars = Array.isArray(part.characteristics) ? part.characteristics : [];
+      for (const ch of chars) {
+        const k2000 = typeof ch.K2000 === "number" ? ch.K2000 : -1;
+        const values = Array.isArray(ch.values) ? ch.values : [];
+        for (const v of values) {
+          const k0000 = typeof v.K0000 === "number" ? v.K0000 : -1;
+          tuples.push([k1000, k2000, k0000]);
+        }
       }
     }
   }

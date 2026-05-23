@@ -57,6 +57,39 @@ export const send = mutation({
   },
 });
 
+/**
+ * Patches the `apiResponse` field of an existing message's metadata in place,
+ * leaving other metadata fields untouched. Used by `ai.fetchPage` after
+ * re-running a CHQL query at a different page number so the UI's
+ * MeasurementTable can show the new page without spawning a fresh
+ * assistant turn.
+ *
+ * Verifies the caller owns the chat that contains the message.
+ */
+export const patchApiResponse = mutation({
+  args: {
+    messageId: v.id("messages"),
+    apiResponse: v.any(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+
+    const chat = await ctx.db.get(message.chatId);
+    if (!chat || chat.userId !== userId) throw new Error("Not authorized");
+
+    await ctx.db.patch(args.messageId, {
+      metadata: {
+        ...message.metadata,
+        apiResponse: args.apiResponse,
+      },
+    });
+  },
+});
+
 export const interrupt = mutation({
   args: { chatId: v.id("chats") },
   handler: async (ctx, args) => {

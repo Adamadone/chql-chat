@@ -6,19 +6,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Bot, User, Loader2, ArrowDown, ChevronRight, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import {
+  MeasurementTable,
+  shouldRenderMeasurementTable,
+} from "@/components/chat/measurement-table";
 import { Button } from "@/components/ui/button";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { useTypewriter } from "@/hooks/use-typewriter";
-import type { Doc } from "convex/_generated/dataModel";
+import type { Doc, Id } from "convex/_generated/dataModel";
 
 interface Message {
-  _id: string;
+  _id: Id<"messages">;
   content: string;
   role: "user" | "assistant";
   createdAt: number;
   interrupted?: boolean;
   metadata?: {
     dslQuery?: string;
+    /** Full SearchEnvelope (rows + aggregates + page) — stored as v.any() in Convex. */
     apiResponse?: unknown;
     error?: string;
     toolCalls?: string[];
@@ -31,6 +36,7 @@ interface PendingMessage {
 }
 
 interface ChatMessagesProps {
+  chatId: Id<"chats">;
   messages: Message[];
   user: Doc<"users">;
   pendingMessage: PendingMessage | null;
@@ -41,6 +47,7 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({
+  chatId,
   messages,
   user,
   pendingMessage,
@@ -76,6 +83,7 @@ export function ChatMessages({
               return (
                 <TypewriterBubble
                   key={message._id}
+                  chatId={chatId}
                   message={message}
                   onDone={onTypewriterDone}
                   onProgress={handleLatchedScroll}
@@ -85,6 +93,7 @@ export function ChatMessages({
             return (
               <MessageBubble
                 key={message._id}
+                chatId={chatId}
                 message={message}
                 user={user}
               />
@@ -125,11 +134,12 @@ export function ChatMessages({
 }
 
 interface MessageBubbleProps {
+  chatId: Id<"chats">;
   message: Message;
   user: Doc<"users">;
 }
 
-function MessageBubble({ message, user }: MessageBubbleProps) {
+function MessageBubble({ chatId, message, user }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
   if (message.interrupted) {
@@ -165,6 +175,14 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
         ) : (
           <MarkdownContent content={message.content} />
         )}
+        {!isUser &&
+          shouldRenderMeasurementTable(message.metadata?.apiResponse) && (
+            <MeasurementTable
+              chatId={chatId}
+              messageId={message._id}
+              envelope={message.metadata?.apiResponse}
+            />
+          )}
         <ErrorBlock metadata={message.metadata} />
       </div>
       {isUser && <UserAvatar user={user} />}
@@ -173,12 +191,13 @@ function MessageBubble({ message, user }: MessageBubbleProps) {
 }
 
 interface TypewriterBubbleProps {
+  chatId: Id<"chats">;
   message: Message;
   onDone: () => void;
   onProgress: () => void;
 }
 
-function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps) {
+function TypewriterBubble({ chatId, message, onDone, onProgress }: TypewriterBubbleProps) {
   const { displayed, isDone } = useTypewriter(message.content, onDone, onProgress);
 
   return (
@@ -192,6 +211,14 @@ function TypewriterBubble({ message, onDone, onProgress }: TypewriterBubbleProps
             <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary align-middle rounded-full" />
           )}
         </div>
+        {isDone &&
+          shouldRenderMeasurementTable(message.metadata?.apiResponse) && (
+            <MeasurementTable
+              chatId={chatId}
+              messageId={message._id}
+              envelope={message.metadata?.apiResponse}
+            />
+          )}
         <ErrorBlock metadata={message.metadata} />
       </div>
     </div>

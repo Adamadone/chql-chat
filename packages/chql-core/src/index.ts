@@ -12,3 +12,13 @@ export {
   hashResultSet,
   type HashResult,
 } from "./hash.js";
+export {
+  parseSearchEnvelope,
+  splitEnvelope,
+  type EnvelopeRow,
+  type NumericAggregate,
+  type CategoricalAggregate,
+  type Aggregate,
+  type SearchEnvelope,
+  type SearchEnvelopeDigest,
+} from "./envelope.js";

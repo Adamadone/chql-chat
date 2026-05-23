@@ -64,6 +64,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import express, { type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
+import { buildEnvelope } from "./envelope.js";
 
 // ─── chy.stat API Configuration ──────────────────────────────────────────────
 
@@ -338,7 +339,18 @@ function createMcpServer(): McpServer {
           );
         }
 
-        return toolSuccess(JSON.stringify(result.data, null, 2));
+        // Wrap the raw aqdef-json in a SearchEnvelope (rowCount + aggregates
+        // + samples + flattened rows). The Convex tool-result splitter strips
+        // `rows` before passing to the LLM, while the UI renders rows as a
+        // virtualized table. This keeps the LLM context bounded regardless
+        // of result size while preserving answer fidelity.
+        const envelope = buildEnvelope(
+          result.data,
+          resolvedPageNumber,
+          resolvedPageSize,
+        );
+
+        return toolSuccess(JSON.stringify(envelope));
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error occurred";

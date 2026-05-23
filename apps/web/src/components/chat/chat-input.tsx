@@ -70,6 +70,16 @@ export function ChatInput({
 
       activeChatRef.current = targetChatId;
 
+      // Fire title generation in parallel with the LLM turn — it only needs
+      // the user's text, not the assistant's reply. Passing userMessage
+      // explicitly lets generateTitle skip the DB roundtrip for the first
+      // message and start its own short LLM call immediately, so the title
+      // appears in the sidebar within ~1s instead of after the full turn.
+      const titlePromise = generateTitle({
+        chatId: targetChatId,
+        userMessage: trimmed,
+      }).catch(console.error);
+
       const result = await processMessage({
         chatId: targetChatId,
         userMessage: trimmed,
@@ -82,7 +92,9 @@ export function ChatInput({
         console.error("AI processing failed:", result.error);
       }
 
-      generateTitle({ chatId: targetChatId }).catch(console.error);
+      // Don't block the UI on the title (it's already in flight), but keep
+      // the promise alive so its error surfaces in the console.
+      void titlePromise;
     } catch (error) {
       if (abortedRef.current) return;
       console.error("Failed to send message:", error);
