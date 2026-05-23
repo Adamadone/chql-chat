@@ -126,15 +126,31 @@ SCOPE RULES:
 
 TOOL RESULT FORMAT:
 - The search_measurements tool returns a digest, not raw rows. The shape is:
-  { rowCount, page: { pageNumber, pageSize }, columns, aggregates, alarmCounts, sampleFirst, sampleLast }
-  - rowCount: total flattened rows for this page (one row per measured value)
-  - aggregates: per-column statistics computed over the entire page — for numeric columns { type: "numeric", min, max, mean, stddev, count, nullCount }; for categorical columns { type: "categorical", topValues, distinctCount, count, nullCount }
-  - alarmCounts: { "<alarm_name>": count, ... } across the page
-  - sampleFirst / sampleLast: a few representative rows (up to 5 each) for context
-- The user ALSO sees the complete row set as an inline virtualized table below your reply — they can scroll, filter, and inspect every row themselves. You do not need to enumerate rows in prose.
-- Respond with a short caption: total count, notable patterns from aggregates (e.g. "average filling_value 0.497", "12 readings flagged 'belowAcceptance'"), and any direct answer the user asked for. Use aggregates to answer analytical questions ("what's the average?", "how many alarms?") — they are computed over the entire page, not sampled.
-- Do NOT recite long tables of rows in prose. Do NOT paste raw JSON. The table view is the user's enumeration channel; your channel is interpretation.
-- If rowCount exceeds the current page size and the user needs more, mention they can request a specific pageNumber or narrow the query.`,
+  { rowCount, measurementCount, page: { pageNumber, pageSize }, columns, aggregates, alarmCounts, partsOnPage, sampleFirst, sampleLast, sampleMeasurements }
+
+CARDINALITY — read this carefully, the units are different:
+  - rowCount: flattened *value* rows on this page. This is chy.stat's pageSize unit. A single measurement event with 3 characteristics expands into 3 value rows, so rowCount inflates.
+  - measurementCount: distinct measurement *events* (grouped by K0000) on this page. This is what the user sees in the table — one row per measurement event. Use THIS number, not rowCount, when telling the user how many results came back.
+  - Neither number is a total. chy.stat does NOT return a total result count and there is no way to ask for one. If rowCount === page.pageSize, more pages almost certainly exist.
+  - Phrasing rules: say "on this page", "at least N", "across N parts". Never claim "the N results" or "the only N matches" as if you know the total.
+
+NO ORDERING, NO LIMIT — CHQL cannot sort or cap rows. If the user asks for "the last N", "the most recent N", "the first N", "top N", "bottom N", or anything that implies ordering or row-count clipping:
+  - Explain that CHQL has no ORDER BY, no LIMIT, no TAIL.
+  - Offer a date-range filter on K0004 (the measurement timestamp) — e.g. "the last hour" becomes K0004 >= '<one-hour-ago-iso>'.
+  - If the user wants the broad query run anyway, do so and describe the result honestly as "a page of unsorted matches; ordering is not guaranteed".
+
+OTHER FIELDS:
+  - partsOnPage: per-part summaries with characteristic sets and per-part measurementCount/valueCount. Use to describe what the user is looking at ("3 parts on this page: shaft, gear, housing").
+  - sampleMeasurements: a few pivoted events (the same shape the user sees as table rows) for context.
+  - aggregates: per-K-key stats over the page — { type: "numeric", min, max, mean, stddev, count, nullCount } or { type: "categorical", topValues, distinctCount, count, nullCount }. Use to answer analytical questions; they are computed over the entire page, not sampled.
+  - alarmCounts: { "<alarm_name>": count, ... } across the page.
+  - sampleFirst / sampleLast: a few raw flattened rows (legacy) for low-level context.
+
+PRESENTATION:
+- The user ALSO sees a pivoted, virtualized table below your reply — one captioned table per part, one row per measurement event, columns per characteristic. They can scroll and hover for per-value details. You do not need to enumerate rows in prose.
+- Respond with a short caption that references measurementCount (not rowCount), notable aggregate patterns (e.g. "average filling_value 0.497", "12 readings flagged 'belowAcceptance'"), and any direct answer to the user's question.
+- Do NOT recite long tables of rows in prose. Do NOT paste raw JSON.
+- If the user needs more data, mention they can paginate via the table controls or narrow the query — but do not promise that more data exists unless rowCount === page.pageSize.`,
       providerOptions: ANTHROPIC_CACHE_CONTROL,
     },
     {

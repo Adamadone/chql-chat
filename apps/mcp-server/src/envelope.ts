@@ -39,9 +39,21 @@ import type {
   CategoricalAggregate,
   Aggregate,
   SearchEnvelope,
+  CharacteristicSummary,
+  PartSummary,
+  MeasurementEventSample,
 } from "@chql-chat/chql-core";
 
-export type { Row, NumericAggregate, CategoricalAggregate, Aggregate, SearchEnvelope };
+export type {
+  Row,
+  NumericAggregate,
+  CategoricalAggregate,
+  Aggregate,
+  SearchEnvelope,
+  CharacteristicSummary,
+  PartSummary,
+  MeasurementEventSample,
+};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -50,6 +62,9 @@ const SAMPLE_SIZE = 5;
 
 /** Maximum number of top values to report in a categorical aggregate. */
 const TOP_CATEGORICAL_VALUES = 10;
+
+/** Number of pivoted measurement events to include in `sampleMeasurements`. */
+const SAMPLE_MEASUREMENT_EVENTS = 3;
 
 // ─── Type Guards ─────────────────────────────────────────────────────────────
 
@@ -261,6 +276,155 @@ function deriveColumns(rows: Row[]): string[] {
   return order;
 }
 
+// ─── Pivot Summary ───────────────────────────────────────────────────────────
+//
+// The chy.stat schema is a tree (parts → characteristics → values), but
+// flattenAqdef collapses it to one row per leaf value, with parent K-keys
+// merged in. To compute the pivot summary we have to re-derive the
+// (part, characteristic) tuple from the K-keys already present on each
+// flat row — there's no parent-pointer carried across.
+//
+// Identity rules:
+//   - part identity: K1000 if present, else K1001, else "_unknown"
+//   - characteristic identity: K2000 if present, else K2001, else "_unknown"
+//   - measurement-event identity: K0000 (the chy.stat measurement value ID,
+//     which is shared across characteristics taken at the same event)
+
+function stringifyKey(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
+function partKeyOf(row: Row): string {
+  const k1000 = row.K1000;
+  if (k1000 !== undefined && k1000 !== null) return `1000:${stringifyKey(k1000)}`;
+  const k1001 = row.K1001;
+  if (k1001 !== undefined && k1001 !== null) return `1001:${stringifyKey(k1001)}`;
+  return "_unknown";
+}
+
+function charKeyOf(row: Row): string {
+  const k2000 = row.K2000;
+  if (k2000 !== undefined && k2000 !== null) return `2000:${stringifyKey(k2000)}`;
+  const k2001 = row.K2001;
+  if (k2001 !== undefined && k2001 !== null) return `2001:${stringifyKey(k2001)}`;
+  return "_unknown";
+}
+
+/** Pull a typed scalar from a row, narrowed to the types PartSummary fields accept. */
+function scalarOrUndefined(
+  v: unknown,
+): number | string | undefined {
+  if (typeof v === "number" || typeof v === "string") return v;
+  return undefined;
+}
+
+/**
+ * Single pass over flat rows that produces:
+ *   - `partsOnPage`: per-part summaries with their characteristic sets
+ *   - `measurementCount`: distinct K0000s across the entire page
+ *   - `sampleMeasurements`: first N pivoted events (LLM-facing)
+ *
+ * O(rows × characteristics_per_part) in the worst case, but in practice
+ * characteristics_per_part is small (single digits for real AQDEF data).
+ */
+function computePivotSummary(rows: Row[]): {
+  partsOnPage: PartSummary[];
+  measurementCount: number;
+  sampleMeasurements: MeasurementEventSample[];
+} {
+  interface PartAcc {
+    summary: PartSummary;
+    charIndex: Map<string, number>;
+  }
+  const parts = new Map<string, PartAcc>();
+  const seenMeasurements = new Set<string>();
+  // Insertion-ordered map of (partKey + K0000) → in-progress pivoted event,
+  // so we can stop building events once we have SAMPLE_MEASUREMENT_EVENTS.
+  const pivotedEvents = new Map<string, MeasurementEventSample>();
+
+  for (const row of rows) {
+    const pKey = partKeyOf(row);
+    let part = parts.get(pKey);
+    if (!part) {
+      part = {
+        summary: {
+          partKey: pKey,
+          K1000: scalarOrUndefined(row.K1000),
+          K1001: typeof row.K1001 === "string" ? row.K1001 : scalarOrUndefined(row.K1001) !== undefined ? String(row.K1001) : undefined,
+          K1002: typeof row.K1002 === "string" ? row.K1002 : undefined,
+          K1003: typeof row.K1003 === "string" ? row.K1003 : undefined,
+          K1008: typeof row.K1008 === "string" ? row.K1008 : undefined,
+          measurementCount: 0,
+          valueCount: 0,
+          characteristics: [],
+        },
+        charIndex: new Map(),
+      };
+      parts.set(pKey, part);
+    }
+
+    part.summary.valueCount += 1;
+
+    const cKey = charKeyOf(row);
+    let cIdx = part.charIndex.get(cKey);
+    if (cIdx === undefined) {
+      cIdx = part.summary.characteristics.length;
+      part.charIndex.set(cKey, cIdx);
+      part.summary.characteristics.push({
+        K2000: scalarOrUndefined(row.K2000),
+        K2001: typeof row.K2001 === "string" ? row.K2001 : scalarOrUndefined(row.K2001) !== undefined ? String(row.K2001) : undefined,
+        K2002: typeof row.K2002 === "string" ? row.K2002 : undefined,
+        K2142: typeof row.K2142 === "string" ? row.K2142 : undefined,
+        valueCount: 0,
+      });
+    }
+    part.summary.characteristics[cIdx].valueCount += 1;
+
+    // Measurement-event accounting. Skip rows where K0000 is missing — they
+    // can't be pivoted reliably, but they still count toward valueCount.
+    const k0000 = row.K0000;
+    if (k0000 === undefined || k0000 === null) continue;
+    const eventKey = `${pKey}|${stringifyKey(k0000)}`;
+    if (!seenMeasurements.has(eventKey)) {
+      seenMeasurements.add(eventKey);
+      part.summary.measurementCount += 1;
+    }
+
+    // Build pivoted samples lazily — only for the first N distinct events.
+    if (pivotedEvents.size < SAMPLE_MEASUREMENT_EVENTS || pivotedEvents.has(eventKey)) {
+      let evt = pivotedEvents.get(eventKey);
+      if (!evt) {
+        evt = {
+          K0000: k0000 as number | string,
+          K0004: typeof row.K0004 === "string" ? row.K0004 : undefined,
+          partKey: pKey,
+          K1001: part.summary.K1001,
+          K1002: part.summary.K1002,
+          values: {},
+        };
+        pivotedEvents.set(eventKey, evt);
+      }
+      const charLabel =
+        typeof row.K2002 === "string" && row.K2002.length > 0
+          ? row.K2002
+          : typeof row.K2001 === "string"
+            ? `K2001=${row.K2001}`
+            : cKey;
+      // K0001 is the measured value; preserve it verbatim (numeric or string).
+      evt.values[charLabel] = row.K0001;
+    }
+  }
+
+  return {
+    partsOnPage: Array.from(parts.values(), (p) => p.summary),
+    measurementCount: seenMeasurements.size,
+    sampleMeasurements: Array.from(pivotedEvents.values()),
+  };
+}
+
 // ─── Envelope Builder ────────────────────────────────────────────────────────
 
 /**
@@ -277,6 +441,8 @@ export function buildEnvelope(
   const columns = deriveColumns(rows);
   const aggregates = computeAggregates(rows, columns);
   const alarmCounts = computeAlarmCounts(rows);
+  const { partsOnPage, measurementCount, sampleMeasurements } =
+    computePivotSummary(rows);
 
   // sampleLast is empty when sampleFirst already covers the whole page, to
   // avoid duplicating rows in the LLM's view.
@@ -286,12 +452,15 @@ export function buildEnvelope(
 
   return {
     rowCount: rows.length,
+    measurementCount,
     page: { pageNumber, pageSize },
     columns,
     aggregates,
     alarmCounts,
+    partsOnPage,
     sampleFirst,
     sampleLast,
+    sampleMeasurements,
     rows,
   };
 }

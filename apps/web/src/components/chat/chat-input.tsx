@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useMutation, useAction, useQuery } from "convex/react";
 import { api } from "convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ interface ChatInputProps {
   isSending: boolean;
   onSendingChange: (sending: boolean) => void;
   userMessageHistory: string[];
+  getDraft: (chatId: Id<"chats"> | null) => string;
+  setDraft: (chatId: Id<"chats"> | null, value: string) => void;
 }
 
 export function ChatInput({
@@ -25,8 +27,29 @@ export function ChatInput({
   isSending,
   onSendingChange,
   userMessageHistory,
+  getDraft,
+  setDraft,
 }: ChatInputProps) {
-  const [input, setInput] = useState("");
+  const [input, setInputState] = useState(() => getDraft(chatId));
+  const prevChatIdRef = useRef(chatId);
+  // Restore the saved draft when switching chats. The parent stores drafts
+  // in a ref (no re-render on keystroke), so this effect only fires on
+  // chatId change.
+  useEffect(() => {
+    if (prevChatIdRef.current !== chatId) {
+      prevChatIdRef.current = chatId;
+      setInputState(getDraft(chatId));
+    }
+  }, [chatId, getDraft]);
+
+  const setInput = useCallback(
+    (value: string) => {
+      setInputState(value);
+      setDraft(chatId, value);
+    },
+    [chatId, setDraft],
+  );
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeChatRef = useRef<Id<"chats"> | null>(null);
   const abortedRef = useRef(false);
@@ -104,7 +127,7 @@ export function ChatInput({
       }
       textareaRef.current?.focus();
     }
-  }, [input, isSending, chatId, emptyChat, createChat, onChatCreated, onOptimisticSend, onSendingChange, processMessage, generateTitle]);
+  }, [input, setInput, isSending, chatId, emptyChat, createChat, onChatCreated, onOptimisticSend, onSendingChange, resetHistory, processMessage, generateTitle]);
 
   const handleInterrupt = useCallback(async () => {
     abortedRef.current = true;

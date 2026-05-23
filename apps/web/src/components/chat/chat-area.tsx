@@ -19,6 +19,8 @@ interface PendingMessage {
   key: string;
 }
 
+const NEW_CHAT_DRAFT_KEY = "__new__";
+
 export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const messages = useQuery(
     api.messages.list,
@@ -32,6 +34,20 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [typewriterId, setTypewriterId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  // Per-chat in-memory drafts so switching chats preserves WIP input. Stored
+  // in a ref (not state) so keystrokes don't re-render this component and
+  // its expensive ChatMessages subtree. Not persisted — refresh wipes it.
+  const draftsRef = useRef<Map<string, string>>(new Map());
+
+  const getDraft = useCallback((key: Id<"chats"> | null) => {
+    return draftsRef.current.get(key ?? NEW_CHAT_DRAFT_KEY) ?? "";
+  }, []);
+  const setDraft = useCallback((key: Id<"chats"> | null, value: string) => {
+    const k = key ?? NEW_CHAT_DRAFT_KEY;
+    if (value === "") draftsRef.current.delete(k);
+    else draftsRef.current.set(k, value);
+  }, []);
+
   const initialLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
 
@@ -116,6 +132,8 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
             isSending={isSending}
             onSendingChange={handleSendingChange}
             userMessageHistory={userMessageHistory}
+            getDraft={getDraft}
+            setDraft={setDraft}
           />
         </div>
       </div>
@@ -148,6 +166,8 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
           isSending={isSending}
           onSendingChange={handleSendingChange}
           userMessageHistory={userMessageHistory}
+          getDraft={getDraft}
+          setDraft={setDraft}
         />
       </div>
     </div>

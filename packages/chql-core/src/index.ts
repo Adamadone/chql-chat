@@ -21,4 +21,7 @@ export {
   type Aggregate,
   type SearchEnvelope,
   type SearchEnvelopeDigest,
+  type CharacteristicSummary,
+  type PartSummary,
+  type MeasurementEventSample,
 } from "./envelope.js";

@@ -246,7 +246,7 @@ function ChatListItem({
     <button
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-all duration-150",
+        "group flex w-full max-w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-2 text-left text-xs transition-all duration-150",
         isActive
           ? "bg-primary/10 text-primary font-medium"
           : "text-foreground/80 hover:bg-accent hover:text-foreground"
@@ -259,7 +259,7 @@ function ChatListItem({
           isActive ? "bg-primary" : "bg-transparent"
         )}
       />
-      <span className="flex-1 truncate">{displayedTitle}</span>
+      <span className="min-w-0 flex-1 truncate">{displayedTitle}</span>
       <Tooltip>
         <TooltipTrigger asChild>
           <span

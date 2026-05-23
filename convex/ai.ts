@@ -847,8 +847,14 @@ export const fetchPage = action({
       | undefined;
     const pageSize = prior?.page?.pageSize ?? DEFAULT_FETCH_PAGE_SIZE;
 
-    const { client: mcpClient } = await connectAndDiscoverTools();
-    if (!mcpClient) {
+    // fetchPage knows the tool name up front, so we skip the listTools
+    // round-trip that connectAndDiscoverTools does on the LLM path. Direct
+    // createMCPClient saves ~one MCP RT per pagination click.
+    let mcpClient: Client;
+    try {
+      mcpClient = await createMCPClient();
+    } catch (err) {
+      console.error("fetchPage: failed to connect to MCP server:", err);
       return { success: false, error: "MCP server is unavailable" };
     }
 
