@@ -1,10 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Local eval runner for self-hosted models (e.g. Qwen 3 4B via vLLM).
- *
- * This script replicates the exact same eval pipeline as the Convex-based
- * evaluation but runs entirely on localhost — connecting directly to vLLM
- * and the MCP server.
+ * Local eval runner for self-hosted models (e.g. Qwen 3 4B via vLLM). See ./CONTEXT.md.
  *
  * Usage:
  *   npx tsx run-local.ts                                          # defaults
@@ -135,7 +131,7 @@ async function closeMCPClient(client: Client): Promise<void> {
   try {
     await client.close();
   } catch {
-    // Best-effort cleanup
+    // best-effort
   }
 }
 
@@ -286,19 +282,16 @@ async function main() {
   console.log(`   vLLM URL: ${config.vllmUrl}`);
   console.log(`   MCP URL:  ${config.mcpUrl}\n`);
 
-  // Load golden set
   const goldenSetPath = join(__dirname, "golden-set.json");
   const queries: GoldenQuery[] = JSON.parse(readFileSync(goldenSetPath, "utf-8"));
   console.log(`📋 Loaded ${queries.length} test queries from golden-set.json\n`);
 
-  // Create vLLM provider
   const localProvider = createOpenAI({
     baseURL: config.vllmUrl,
     apiKey: "not-needed",
   });
   const model = localProvider.chat(config.model);
 
-  // Connect to MCP server
   console.log(`🔌 Connecting to MCP server at ${config.mcpUrl}...`);
   let mcpClient: Client;
   try {
@@ -318,7 +311,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Run eval
   const results: EvalResult[] = [];
   let successCount = 0;
   let toolUsageCount = 0;
@@ -423,10 +415,8 @@ async function main() {
     }
   }
 
-  // Close MCP
   await closeMCPClient(mcpClient);
 
-  // Compute aggregates
   const n = validResultCount || 1;
   const completedAt = new Date().toISOString();
 
@@ -449,13 +439,11 @@ async function main() {
     results,
   };
 
-  // Write results
   mkdirSync(join(__dirname, "results"), { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputPath = join(__dirname, "results", `${config.model}-${timestamp}.json`);
   writeFileSync(outputPath, JSON.stringify(report, null, 2));
 
-  // Print summary
   console.log(`\n${"═".repeat(60)}`);
   console.log(`📊 Eval Results: ${config.model}`);
   console.log(`${"═".repeat(60)}`);

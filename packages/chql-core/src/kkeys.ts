@@ -1,10 +1,4 @@
-/**
- * @module @chql-chat/chql-core/kkeys — K-key extraction and comparison
- *
- * K-keys (`K1001`, `KX123`, etc.) are the identifier vocabulary of CHQL.
- * Eval pipelines extract them from a generated query to compare against
- * the golden set's expected K-keys.
- */
+// See ./CONTEXT.md for module overview.
 export function extractKkeys(chql: string): string[] {
   const matches = chql.match(/K[X]?\d+/g);
   return matches ? [...new Set(matches)] : [];

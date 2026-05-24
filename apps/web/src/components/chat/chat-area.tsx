@@ -34,9 +34,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const [pendingMessage, setPendingMessage] = useState<PendingMessage | null>(null);
   const [typewriterId, setTypewriterId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
-  // Per-chat in-memory drafts so switching chats preserves WIP input. Stored
-  // in a ref (not state) so keystrokes don't re-render this component and
-  // its expensive ChatMessages subtree. Not persisted — refresh wipes it.
+  // Drafts in a ref (not state) so keystrokes don't re-render the expensive ChatMessages subtree.
   const draftsRef = useRef<Map<string, string>>(new Map());
 
   const getDraft = useCallback((key: Id<"chats"> | null) => {
@@ -51,8 +49,7 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
   const initialLoadRef = useRef(true);
   const lastMessageCountRef = useRef(0);
 
-  // Derive waiting state from server-side isProcessing flag (survives chat switches)
-  // combined with optimistic pendingMessage (covers the instant before server knows)
+  // Server isProcessing survives chat switches; pendingMessage covers the gap before the server knows.
   const isWaitingForResponse =
     chat?.isProcessing === true || pendingMessage !== null;
 
@@ -69,12 +66,10 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
       const last = messages[messages.length - 1];
       lastMessageCountRef.current = messages.length;
 
-      // Clear optimistic pending bubble once the real user message arrives
       if (last.role === "user" && pendingMessage) {
         setPendingMessage(null);
       }
 
-      // Trigger typewriter for new assistant messages
       if (last.role === "assistant") {
         if (!last.interrupted) {
           setTypewriterId(last._id);
@@ -83,7 +78,6 @@ export function ChatArea({ chatId, onChatCreated, user }: ChatAreaProps) {
     }
   }, [messages, pendingMessage]);
 
-  // Reset UI-only state when switching chats
   useEffect(() => {
     initialLoadRef.current = true;
     lastMessageCountRef.current = 0;

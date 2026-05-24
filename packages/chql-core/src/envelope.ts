@@ -1,21 +1,4 @@
-/**
- * @module @chql-chat/chql-core/envelope — Wire types for the search_measurements envelope
- *
- * Both the MCP server (producer) and the Convex action / web UI (consumers)
- * agree on this shape. Centralising it here prevents the two sides from
- * drifting and gives the UI/eval a clean type to consume.
- *
- * Why split LLM vs UI: a single broad CHQL query can return 1000 rows of
- * ~1.5KB each, which overflows the 200K-token model context when re-fed as
- * a tool result on the next step. The MCP server wraps every response in
- * this envelope. The Convex tool-result splitter then strips `rows` before
- * the LLM sees it, while the full envelope (including `rows`) is persisted
- * to `messages.metadata.apiResponse` for the UI table.
- *
- * Aggregates are deterministic JS computations over the entire page (not
- * sampled), so analytical questions like "average K0001" are answered from
- * the digest alone without the model ever seeing all rows.
- */
+// See ./CONTEXT.md for module overview.
 
 /** A single flattened measurement: every K-key field from value + char + part levels. */
 export interface EnvelopeRow {
@@ -44,11 +27,7 @@ export interface CategoricalAggregate {
 
 export type Aggregate = NumericAggregate | CategoricalAggregate;
 
-/**
- * Per-characteristic summary inside a part. Lets the LLM (and the UI's
- * pivot caption) know what K2xxx columns the pivoted table will have for
- * a given part without scanning rows itself.
- */
+/** Per-characteristic summary inside a part — drives the pivoted table's K2xxx columns. */
 export interface CharacteristicSummary {
   /** Stable identity within the part — chy.stat's char DB id when present. */
   K2000?: number | string;
@@ -62,12 +41,7 @@ export interface CharacteristicSummary {
   valueCount: number;
 }
 
-/**
- * Per-part summary on the current page. One entry per distinct part (grouped
- * by K1000 if present, else K1001). Carries the caption fields the UI shows
- * above each pivoted table, and the characteristic list that becomes the
- * column set for that part.
- */
+/** Per-part summary on the current page — one per distinct part (K1000, else K1001). */
 export interface PartSummary {
   /** Stable identity used for grouping (K1000 when present, else K1001). */
   partKey: string;
@@ -84,13 +58,7 @@ export interface PartSummary {
   characteristics: CharacteristicSummary[];
 }
 
-/**
- * One pivoted measurement event — the unit the user sees in the UI table
- * and the unit the LLM should reason about when describing cardinality.
- *
- * Cells are keyed by `K2002` characteristic label so the LLM can reference
- * them by their human name in prose.
- */
+/** One pivoted measurement event — the UI's row unit and the LLM's cardinality unit. */
 export interface MeasurementEventSample {
   K0000: number | string;
   K0004?: string;
@@ -102,19 +70,11 @@ export interface MeasurementEventSample {
 }
 
 /**
- * The envelope returned by the MCP `search_measurements` tool.
+ * Envelope returned by the MCP `search_measurements` tool. Convex splits this:
+ * `rows` → `metadata.apiResponse` for the UI; the rest becomes the LLM digest.
  *
- * The Convex side splits this: `rows` goes to `metadata.apiResponse` for
- * the UI, everything else becomes the LLM-facing digest.
- *
- * Cardinality fields — read them carefully:
- *   - `rowCount` = flattened *value* rows on this page (matches chy.stat's
- *     `pageSize` unit). A measurement event with N characteristics expands
- *     into N rows.
- *   - `measurementCount` = distinct K0000 measurement events on this page.
- *     This is the unit the UI table renders one row per, and the unit the
- *     LLM should use when telling the user "we got N results".
- *   - Neither is a total. chy.stat does not surface a total result count.
+ * `rowCount` and `measurementCount` are different units (see the field docs).
+ * Neither is a total — chy.stat does not surface a result total.
  */
 export interface SearchEnvelope {
   /** Total flattened *value* rows on this page (== chy.stat's pageSize unit). */
@@ -140,18 +100,12 @@ export interface SearchEnvelope {
   rows: EnvelopeRow[];
 }
 
-/**
- * The slice of the envelope that goes to the LLM as a tool result. `rows`
- * is omitted; the rest is preserved so the model has counts, aggregates,
- * and small first/last samples to reason over.
- */
+/** LLM-facing slice of the envelope — same shape, no `rows`. */
 export type SearchEnvelopeDigest = Omit<SearchEnvelope, "rows">;
 
 /**
- * Best-effort parse of an MCP tool-result text into a SearchEnvelope.
- * Returns null if the text isn't JSON or lacks the expected shape. Callers
- * should treat null as "the response is not an envelope (e.g. legacy raw
- * aqdef-json, or an error payload)" and pass it through unchanged.
+ * Returns null if the text isn't JSON or lacks the envelope shape — callers
+ * pass through unchanged (legacy aqdef-json, error payloads, etc).
  */
 export function parseSearchEnvelope(text: string): SearchEnvelope | null {
   let parsed: unknown;
@@ -171,9 +125,7 @@ export function parseSearchEnvelope(text: string): SearchEnvelope | null {
   ) {
     return null;
   }
-  // Back-compat: tolerate envelopes from older mcp-server builds that don't
-  // carry the pivot fields yet by filling in zero-ish defaults. The UI and
-  // LLM will simply see "0 measurements / no parts" and degrade to a flat view.
+  // Back-compat with pre-pivot envelopes: missing fields → zero-ish defaults; UI degrades to a flat view.
   const e = obj as Record<string, unknown>;
   if (typeof e.measurementCount !== "number") e.measurementCount = 0;
   if (!Array.isArray(e.partsOnPage)) e.partsOnPage = [];
@@ -181,10 +133,7 @@ export function parseSearchEnvelope(text: string): SearchEnvelope | null {
   return obj as unknown as SearchEnvelope;
 }
 
-/**
- * Split an envelope into the LLM-facing digest (no `rows`) and the rows array.
- * Used by the Convex tool-result splitter.
- */
+/** Split an envelope into the LLM digest (no `rows`) and the rows array. */
 export function splitEnvelope(envelope: SearchEnvelope): {
   digest: SearchEnvelopeDigest;
   rows: EnvelopeRow[];

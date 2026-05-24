@@ -1,28 +1,6 @@
-/**
- * @module @chql-chat/chql-core/prompt — Canonical CHQL system prompt
- *
- * Single source of truth for the system prompt used across production
- * chat, Convex evaluation, and local CLI eval. Returns an array of system
- * message blocks so the static reference (which qualifies for Anthropic
- * prompt caching) can be marked separately from the per-request dynamic
- * parts (tool availability, current time, timezone).
- *
- * The block shape matches the AI SDK's `SystemModelMessage` structurally,
- * so consumers can pass the result directly to `generateText({ system })`
- * without converting. We don't depend on the AI SDK here to keep this
- * package free of runtime-heavy peers.
- *
- * The prompt assumes (but doesn't require) that user messages are wrapped
- * in `<user_message_*>...</user_message_*>` tags as an injection defense.
- * Callers that don't wrap their user messages will see the instruction as
- * a no-op — there are no tags for the model to scrutinize.
- */
+// See ./CONTEXT.md for module overview.
 import { CHQL_REFERENCE } from "./reference.js";
 
-/**
- * Recursive JSON value — mirrors what the AI SDK accepts in provider
- * options. Defined locally to keep this package AI-SDK-free.
- */
 type JSONValue =
   | null
   | boolean
@@ -31,35 +9,20 @@ type JSONValue =
   | JSONValue[]
   | { [key: string]: JSONValue };
 
-/**
- * Structural match for `@ai-sdk/provider-utils`' `SystemModelMessage`.
- * Kept local so this package doesn't pull in the AI SDK as a dependency.
- */
+/** Structural match for the AI SDK's `SystemModelMessage`, defined locally. */
 export interface SystemPromptBlock {
   role: "system";
   content: string;
   providerOptions?: Record<string, Record<string, JSONValue>>;
 }
 
-/**
- * Anthropic-specific provider option to mark a system block as cacheable.
- * Other providers ignore `providerOptions` so this is safe to attach
- * unconditionally — it only takes effect when the underlying provider is
- * Anthropic.
- *
- * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
- */
+/** Marks a system block as Anthropic-cacheable; other providers ignore `providerOptions`. */
 export const ANTHROPIC_CACHE_CONTROL = {
   anthropic: { cacheControl: { type: "ephemeral" as const } },
 };
 
-/**
- * Format `date` as an ISO 8601 string with the wall-clock components and
- * offset of `timeZone` (e.g. `2026-05-23T10:36:00+02:00`). We pre-compute
- * this server-side instead of letting the model convert from UTC, because
- * LLMs are unreliable at timezone arithmetic — they tend to keep the UTC
- * numerals and just stamp the local offset onto them.
- */
+// LLMs are unreliable at timezone arithmetic — they keep UTC numerals and stamp the local offset onto them.
+// Pre-compute the wall-clock ISO 8601 (e.g. `2026-05-23T10:36:00+02:00`) server-side instead.
 function formatLocalIso(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

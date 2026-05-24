@@ -57,15 +57,7 @@ export const send = mutation({
   },
 });
 
-/**
- * Patches the `apiResponse` field of an existing message's metadata in place,
- * leaving other metadata fields untouched. Used by `ai.fetchPage` after
- * re-running a CHQL query at a different page number so the UI's
- * MeasurementTable can show the new page without spawning a fresh
- * assistant turn.
- *
- * Verifies the caller owns the chat that contains the message.
- */
+/** Used by ai.fetchPage to swap in a new page's envelope without spawning a new turn. */
 export const patchApiResponse = mutation({
   args: {
     messageId: v.id("messages"),

@@ -1,37 +1,5 @@
-/**
- * @module envelope — Flatten + aggregate aqdef-json into a context-friendly envelope
- *
- * The chy.stat API returns measurement data in a hierarchical shape:
- *
- *   { parts: [
- *       { K1000, ...K1xxx, characteristics: [
- *           { K2000, ...K2xxx, values: [
- *               { K0000, K0001, K0004, ...K0xxx, alarms?: [...] }
- *           ] }
- *       ] }
- *   ] }
- *
- * Returning that raw structure to the LLM blows the 200K-token context window
- * on broad queries (1000 rows × ~1.5KB each). Two channels need different
- * representations:
- *
- *   - LLM: small **digest** = aggregates + samples (~ tens of rows worth of text)
- *   - UI:  full **rows** = every leaf value flattened with its parent K-keys
- *
- * This module produces a single {@link SearchEnvelope} carrying both. The
- * Convex side ({@link callMCPTool}) splits the envelope before feeding back
- * to the LLM: only `rows` is omitted from the model's tool-result message.
- *
- * Aggregates are computed deterministically in JS over the entire page (not
- * sampled), so analytical questions like "average K1001" are answered from
- * the digest without the model ever seeing all rows.
- */
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-//
-// Wire types are defined in @chql-chat/chql-core/envelope so the Convex
-// consumer + the eval harness share one source of truth. We re-export them
-// here for local convenience.
+// See ./CONTEXT.md for module overview.
+// Produces the SearchEnvelope wire shape consumed by chql-core's types.
 
 import type {
   EnvelopeRow as Row,
@@ -57,13 +25,9 @@ export type {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Number of rows to include in `sampleFirst` / `sampleLast`. Kept small to bound LLM context. */
+// All three are LLM-context bounds: keep digest tiny.
 const SAMPLE_SIZE = 5;
-
-/** Maximum number of top values to report in a categorical aggregate. */
 const TOP_CATEGORICAL_VALUES = 10;
-
-/** Number of pivoted measurement events to include in `sampleMeasurements`. */
 const SAMPLE_MEASUREMENT_EVENTS = 3;
 
 // ─── Type Guards ─────────────────────────────────────────────────────────────
@@ -72,14 +36,11 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-/** Extract every scalar (non-array, non-object) K-key field from an entity record. */
+/** Scalar (non-array, non-object) K-key fields from an entity, minus child collections. */
 function scalarKkeys(entity: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(entity)) {
-    // Skip child-collection fields (handled by the recursion) and any
-    // non-K-key bookkeeping fields the upstream might attach.
     if (key === "characteristics" || key === "values" || key === "alarms") continue;
-    // Keep scalars (number, string, boolean, null). Skip nested objects/arrays.
     if (value === null || typeof value !== "object") {
       out[key] = value;
     }
@@ -87,7 +48,6 @@ function scalarKkeys(entity: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** Pull an array of alarm names from a value record, if present. */
 function extractAlarms(value: Record<string, unknown>): string[] | undefined {
   const raw = value.alarms;
   if (!Array.isArray(raw)) return undefined;
@@ -104,15 +64,7 @@ function extractAlarms(value: Record<string, unknown>): string[] | undefined {
 
 // ─── Flattening ──────────────────────────────────────────────────────────────
 
-/**
- * Walk the aqdef-json tree and produce one row per leaf `value`, with the
- * parent part and characteristic scalar K-keys merged in.
- *
- * Field-collision rule: child fields win over parent fields. In practice K0xxx,
- * K2xxx, K1xxx don't collide, but if the upstream ever puts the same key at
- * multiple levels, the closest-to-leaf wins (consistent with "this measurement
- * value's view of the world").
- */
+/** One row per leaf value, parent K-keys merged in. Child fields win on collision. */
 export function flattenAqdef(raw: unknown): Row[] {
   const rows: Row[] = [];
   if (!isRecord(raw)) return rows;
@@ -147,10 +99,6 @@ export function flattenAqdef(raw: unknown): Row[] {
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
 
-/**
- * Determine whether every non-null entry in `values` is finite-numeric.
- * Used to decide whether a column is numeric or categorical.
- */
 function isNumericColumn(values: unknown[]): values is number[] {
   if (values.length === 0) return false;
   return values.every(
@@ -210,10 +158,7 @@ function computeCategoricalAggregate(
   };
 }
 
-/**
- * For each column, classify and compute one {@link Aggregate}. Skips the
- * `alarms` column — alarms are summarized separately via {@link computeAlarmCounts}.
- */
+// Per-column aggregate; alarms are summarised separately via computeAlarmCounts.
 function computeAggregates(rows: Row[], columns: string[]): Record<string, Aggregate> {
   const out: Record<string, Aggregate> = {};
   for (const col of columns) {
@@ -247,7 +192,6 @@ function computeAggregates(rows: Row[], columns: string[]): Record<string, Aggre
   return out;
 }
 
-/** Tally alarm-name occurrences across every row's `alarms` array. */
 function computeAlarmCounts(rows: Row[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const row of rows) {
@@ -261,7 +205,7 @@ function computeAlarmCounts(rows: Row[]): Record<string, number> {
   return out;
 }
 
-/** Stable union of all field names that appear in any row. */
+/** Union of field names across rows in first-seen order. */
 function deriveColumns(rows: Row[]): string[] {
   const seen = new Set<string>();
   const order: string[] = [];
@@ -277,18 +221,11 @@ function deriveColumns(rows: Row[]): string[] {
 }
 
 // ─── Pivot Summary ───────────────────────────────────────────────────────────
-//
-// The chy.stat schema is a tree (parts → characteristics → values), but
-// flattenAqdef collapses it to one row per leaf value, with parent K-keys
-// merged in. To compute the pivot summary we have to re-derive the
-// (part, characteristic) tuple from the K-keys already present on each
-// flat row — there's no parent-pointer carried across.
-//
-// Identity rules:
-//   - part identity: K1000 if present, else K1001, else "_unknown"
-//   - characteristic identity: K2000 if present, else K2001, else "_unknown"
-//   - measurement-event identity: K0000 (the chy.stat measurement value ID,
-//     which is shared across characteristics taken at the same event)
+// Re-derives (part, characteristic, event) identity from K-keys on each flat row
+// — no parent pointer survives flattenAqdef. Identity rules:
+//   part: K1000 → K1001 → "_unknown"
+//   characteristic: K2000 → K2001 → "_unknown"
+//   event: K0000 (shared across characteristics taken at the same event)
 
 function stringifyKey(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -313,7 +250,6 @@ function charKeyOf(row: Row): string {
   return "_unknown";
 }
 
-/** Pull a typed scalar from a row, narrowed to the types PartSummary fields accept. */
 function scalarOrUndefined(
   v: unknown,
 ): number | string | undefined {
@@ -321,15 +257,7 @@ function scalarOrUndefined(
   return undefined;
 }
 
-/**
- * Single pass over flat rows that produces:
- *   - `partsOnPage`: per-part summaries with their characteristic sets
- *   - `measurementCount`: distinct K0000s across the entire page
- *   - `sampleMeasurements`: first N pivoted events (LLM-facing)
- *
- * O(rows × characteristics_per_part) in the worst case, but in practice
- * characteristics_per_part is small (single digits for real AQDEF data).
- */
+// Single pass producing partsOnPage, measurementCount, and the first N pivoted events.
 function computePivotSummary(rows: Row[]): {
   partsOnPage: PartSummary[];
   measurementCount: number;
@@ -341,8 +269,7 @@ function computePivotSummary(rows: Row[]): {
   }
   const parts = new Map<string, PartAcc>();
   const seenMeasurements = new Set<string>();
-  // Insertion-ordered map of (partKey + K0000) → in-progress pivoted event,
-  // so we can stop building events once we have SAMPLE_MEASUREMENT_EVENTS.
+  // Stop building events after SAMPLE_MEASUREMENT_EVENTS distinct (partKey + K0000).
   const pivotedEvents = new Map<string, MeasurementEventSample>();
 
   for (const row of rows) {
@@ -383,8 +310,7 @@ function computePivotSummary(rows: Row[]): {
     }
     part.summary.characteristics[cIdx].valueCount += 1;
 
-    // Measurement-event accounting. Skip rows where K0000 is missing — they
-    // can't be pivoted reliably, but they still count toward valueCount.
+    // Rows missing K0000 still count toward valueCount but can't be pivoted.
     const k0000 = row.K0000;
     if (k0000 === undefined || k0000 === null) continue;
     const eventKey = `${pKey}|${stringifyKey(k0000)}`;
@@ -393,7 +319,6 @@ function computePivotSummary(rows: Row[]): {
       part.summary.measurementCount += 1;
     }
 
-    // Build pivoted samples lazily — only for the first N distinct events.
     if (pivotedEvents.size < SAMPLE_MEASUREMENT_EVENTS || pivotedEvents.has(eventKey)) {
       let evt = pivotedEvents.get(eventKey);
       if (!evt) {
@@ -413,7 +338,6 @@ function computePivotSummary(rows: Row[]): {
           : typeof row.K2001 === "string"
             ? `K2001=${row.K2001}`
             : cKey;
-      // K0001 is the measured value; preserve it verbatim (numeric or string).
       evt.values[charLabel] = row.K0001;
     }
   }
@@ -427,11 +351,7 @@ function computePivotSummary(rows: Row[]): {
 
 // ─── Envelope Builder ────────────────────────────────────────────────────────
 
-/**
- * Build the {@link SearchEnvelope} from the raw chy.stat aqdef-json response
- * for one page. Flattening + aggregation happens here, server-side, so the
- * Convex action receives a context-friendly digest already.
- */
+/** Build the SearchEnvelope from one page of raw aqdef-json. */
 export function buildEnvelope(
   raw: unknown,
   pageNumber: number,
@@ -444,8 +364,7 @@ export function buildEnvelope(
   const { partsOnPage, measurementCount, sampleMeasurements } =
     computePivotSummary(rows);
 
-  // sampleLast is empty when sampleFirst already covers the whole page, to
-  // avoid duplicating rows in the LLM's view.
+  // sampleLast empty when sampleFirst already covers the page (avoid duplicates).
   const sampleFirst = rows.slice(0, SAMPLE_SIZE);
   const sampleLast =
     rows.length > 2 * SAMPLE_SIZE ? rows.slice(-SAMPLE_SIZE) : [];

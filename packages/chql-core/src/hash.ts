@@ -1,20 +1,6 @@
-/**
- * @module @chql-chat/chql-core/hash — Row-set hashing for chy.stat responses
- *
- * Used by the eval pipeline to decide whether two CHQL queries are
- * functionally equivalent: we hash the set of `(K1000, K2000, K0000)`
- * tuples (part, characteristic, value IDs) from each response and
- * compare the hashes.
- *
- * `K0000` alone isn't unique across characteristics — your sample
- * response shows the same K0000 under filling_value and chilling for
- * the same piece/timestamp — so we include K2000 (and K1000 for
- * belt-and-suspenders).
- *
- * Note: imports `node:crypto`. Consumers must run in a Node-compatible
- * runtime — Convex actions with `"use node"` on the consuming file, or
- * direct Node/tsx. Not consumable from Convex V8 functions.
- */
+// See ./CONTEXT.md for module overview.
+// K0000 isn't unique across characteristics — the same K0000 can appear under
+// multiple K2000 for the same piece/timestamp — so we hash the full tuple.
 
 import { createHash } from "node:crypto";
 
@@ -47,10 +33,7 @@ export function hashResultSet(raw: unknown): HashResult {
 
   const root = isRecord(raw) ? raw : {};
 
-  // New shape: the MCP server wraps responses in a SearchEnvelope whose
-  // `rows` array is already flattened — each row carries K1000/K2000/K0000
-  // propagated from its parent part/characteristic. Detect by presence of
-  // `rowCount` + `rows`.
+  // New shape (SearchEnvelope): flattened rows already carry K1000/K2000/K0000.
   if (typeof root.rowCount === "number" && Array.isArray(root.rows)) {
     for (const row of root.rows as Array<Record<string, unknown>>) {
       if (!isRecord(row)) continue;
@@ -60,9 +43,7 @@ export function hashResultSet(raw: unknown): HashResult {
       tuples.push([k1000, k2000, k0000]);
     }
   } else {
-    // Legacy shape: raw aqdef-json with nested parts → characteristics → values.
-    // Kept for backwards compatibility with any caller that still receives
-    // unwrapped responses (e.g. older stored fixtures, direct API tests).
+    // Legacy shape: nested parts → characteristics → values (older fixtures, direct API tests).
     const parts = Array.isArray(root.parts) ? (root.parts as Part[]) : [];
     for (const part of parts) {
       const k1000 = typeof part.K1000 === "number" ? part.K1000 : -1;
@@ -95,11 +76,7 @@ export function hashResultSet(raw: unknown): HashResult {
   };
 }
 
-/**
- * Parses the MCP tool result text (JSON string) and hashes it. Returns
- * `null` if the text isn't valid JSON — caller should treat this as an
- * API error.
- */
+/** Returns null if the text isn't valid JSON — caller should treat that as an API error. */
 export function hashMCPResponseText(text: string): HashResult | null {
   try {
     const parsed = JSON.parse(text);

@@ -1,16 +1,4 @@
-/**
- * @module @chql-chat/chql-core/reference — CHQL grammar reference text
- *
- * The static CHQL grammar reference embedded into the system prompt for
- * every LLM call. Kept as a single source of truth so callers (production
- * chat, Convex evaluation, local CLI eval) can't drift.
- *
- * The block is intentionally large (~4000+ tokens) so that it qualifies
- * for Anthropic's prompt caching minimum. Non-Anthropic providers see it
- * as plain text.
- *
- * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
- */
+// See ./CONTEXT.md for module overview.
 export const CHQL_REFERENCE = `
 ## CHQL (chy.stat Query Language) — Complete Reference
 

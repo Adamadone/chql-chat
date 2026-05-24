@@ -1,25 +1,6 @@
-/**
- * @module convex/evaluation — Model Benchmarking Actions
- *
- * Convex actions for running structured evaluations of different LLM models
- * against a golden set of test queries. Each query is sent through the same
- * LLM + MCP pipeline used in production, and metrics are collected.
- *
- * Mutations and queries are in evaluationHelpers.ts (Convex requires them
- * in the default runtime, not Node.js).
- *
- * ## Usage
- *
- * Trigger an eval from the Convex dashboard:
- * ```
- * api.evaluation.startEval({ modelId: "claude-opus-4-7" })
- * ```
- *
- * Export results:
- * ```
- * api.evaluationHelpers.exportResults({ runIds: [runId1, runId2] })
- * ```
- */
+// See ./CONTEXT.md for module overview.
+// Trigger from Convex dashboard: api.evaluation.startEval({ modelId: "claude-opus-4-7" })
+// Export results:               api.evaluationHelpers.exportResults({ runIds: [...] })
 
 "use node";
 
@@ -56,19 +37,15 @@ type ChqlEquivalent =
   | "expected_empty"
   | "actual_error";
 
-// Large pageSize used for eval-time re-execution so functional comparison
-// reflects the full result set (queries returning >1000 rows are truncated,
-// which is acceptable for the current golden set).
+// Larger than production so equivalence reflects the full result set;
+// >1000-row queries get truncated — acceptable for the current golden set.
 const EVAL_PAGE_SIZE = 1000;
 
 const SEARCH_TOOL_NAME = "search_measurements";
 
-// ─── Cost Estimation ────────────────────────────────────────────────────────
+// ─── Cost estimation ────────────────────────────────────────────────────────
 
-/**
- * Per-token pricing in USD. Costs are per 1M tokens.
- * Self-hosted models have zero marginal API cost.
- */
+// USD per 1M tokens. Self-hosted (local/*) is absent → zero marginal API cost.
 const PRICING: Record<string, { input: number; output: number }> = {
   "claude-opus-4-7": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
@@ -87,7 +64,7 @@ function estimateCost(
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
 
-// ─── Core Eval Logic ────────────────────────────────────────────────────────
+// ─── Core eval logic ────────────────────────────────────────────────────────
 
 interface SingleQueryOutcome {
   response: string;
@@ -100,13 +77,8 @@ interface SingleQueryOutcome {
   chqlEquivalent: ChqlEquivalent;
 }
 
-/**
- * Executes the LLM pipeline for one golden-set entry, then — with the same
- * MCP client still connected — fetches the row-set hashes for both
- * `actualChql` and `expectedChql` back-to-back to compute functional
- * equivalence. The two fetches happen ~100ms apart so that chy.stat data
- * drift during the run can't invalidate the comparison.
- */
+// Fetches actual + expected row-set hashes back-to-back (~100ms apart) so chy.stat data
+// drift mid-run can't invalidate the comparison.
 async function runSingleQuery(
   queryEntry: GoldenQuery,
   modelId: string,
@@ -150,14 +122,8 @@ async function runSingleQuery(
   }
 }
 
-/**
- * Computes the functional equivalence verdict for one query attempt.
- *
- * Fetches both the actual and expected result sets via MCP back-to-back
- * and compares their row-set hashes. Returns `actual_error` if we can't
- * get a clean response for the actual query, `expected_empty` if the
- * expected query returns zero rows (can't meaningfully compare).
- */
+// Returns `actual_error` if actualChql doesn't produce a clean response;
+// `expected_empty` if expectedChql returns zero rows (can't meaningfully compare).
 async function computeEquivalence(
   mcpClient: Awaited<ReturnType<typeof connectAndDiscoverTools>>["client"],
   actualChql: string | undefined,
@@ -179,10 +145,7 @@ async function computeEquivalence(
   const actualHash = hashMCPResponseText(actualText.text);
   if (!actualHash) return "actual_error";
 
-  // Two queries that produce the same row set are equivalent regardless of
-  // whether that set is empty. So we always try to compute expectedHash first,
-  // then compare hashes before falling back to "expected_empty" — otherwise
-  // identical-CHQL-against-no-data is misreported as unjudgeable.
+  // Compute expectedHash first so identical-CHQL-against-no-data isn't misreported as unjudgeable.
   let expectedHash: ReturnType<typeof hashMCPResponseText> | null = null;
   let expectedFailed = false;
 
@@ -213,23 +176,11 @@ async function computeEquivalence(
   return "different";
 }
 
-// ─── Exported Actions ───────────────────────────────────────────────────────
+// ─── Exported actions ───────────────────────────────────────────────────────
 
-/**
- * Runs a single query from the golden set as its own scheduled action.
- *
- * This is the core of the scheduler-based eval pipeline. Each query
- * (and each attempt of a query) runs in a fresh action invocation with
- * its own 5-minute budget, so a slow query can't take down the whole run.
- *
- * After each attempt, this action decides what to schedule next:
- *   - Failed attempt 1? → schedule attempt 2 of the same query.
- *   - Otherwise, more queries left? → schedule attempt 1 of the next query.
- *   - All queries done? → run `finalizeEvalRun` mutation to compute aggregates.
- *
- * Errors from `runSingleQuery` are caught, recorded as a failure row, and
- * the chain continues to the next step. Re-throwing would orphan the run.
- */
+// One query attempt per scheduled action (own 5-min budget). Decides what to schedule next:
+// retry on fail (attempt 2) → next query (attempt 1) → finalizeEvalRun.
+// Errors are recorded as failure rows; re-throwing would orphan the run.
 export const runQueryAction = internalAction({
   args: {
     runId: v.id("evalRuns"),
@@ -328,13 +279,10 @@ export const runQueryAction = internalAction({
           insertError,
         );
       }
-      // Fall through to the next-step decision below. success stays false.
     }
 
-    // Decide what to schedule next.
     const nextQueryIndex = args.queryIndex + 1;
     if (!success && args.attempt === 1) {
-      // Retry same query
       await ctx.scheduler.runAfter(0, internal.evaluation.runQueryAction, {
         runId: args.runId,
         modelId: args.modelId,
@@ -342,7 +290,6 @@ export const runQueryAction = internalAction({
         attempt: 2,
       });
     } else if (nextQueryIndex < totalQueries) {
-      // Advance to next query
       await ctx.scheduler.runAfter(0, internal.evaluation.runQueryAction, {
         runId: args.runId,
         modelId: args.modelId,
@@ -350,7 +297,6 @@ export const runQueryAction = internalAction({
         attempt: 1,
       });
     } else {
-      // Done — finalize aggregates
       await ctx.runMutation(internal.evaluationHelpers.finalizeEvalRun, {
         runId: args.runId,
       });
@@ -359,13 +305,7 @@ export const runQueryAction = internalAction({
   },
 });
 
-/**
- * Public action to trigger an eval run.
- *
- * Creates the `evalRuns` row, schedules the first query action, and returns
- * immediately with `{ runId }`. The actual eval proceeds asynchronously via
- * the scheduler chain in `runQueryAction`.
- */
+/** Creates the eval run row, schedules the first query action, returns `{ runId }` immediately. */
 export const startEval = action({
   args: {
     modelId: v.string(),
@@ -396,26 +336,11 @@ export const startEval = action({
   },
 });
 
-/**
- * Re-judges every row of an existing run against the current golden-set,
- * using only the stored CHQL strings — no MCP, no LLM, no query execution.
- *
- * Handles:
- *   1. Golden-set entries whose `expectedChql` was wrong and has since been
- *      corrected in `eval/golden-set.json`. Rewrites the stored reference on
- *      each row and re-derives `kkeysCorrect`.
- *   2. `expected_empty` false-failures where `actualChql` === `expectedChql`
- *      (the cases you reported). Identical CHQL → identical row sets by
- *      construction, so we can confidently upgrade the verdict to
- *      `"equivalent"` without running either query.
- *
- * Rows with textually-different CHQLs that might still be semantically
- * equivalent are left with their stored verdict — judging those would
- * require re-executing both queries against MCP. If you later need to
- * recover those too, run the old MCP-based rejudge as a second pass.
- *
- * Recomputes aggregateMetrics; preserves `completedAt`.
- */
+// Re-judges historical rows against the current golden-set using only stored CHQL strings.
+// Handles two cases: (1) corrected golden-set references → updates row + re-derives kkeysCorrect;
+// (2) identical-CHQL false-failures (e.g. expected_empty when actual==expected) → upgrades to equivalent.
+// Rows with textually-different CHQLs keep their stored verdict (judging those needs MCP).
+// Recomputes aggregateMetrics; preserves completedAt.
 export const rejudgeRun = action({
   args: {
     runId: v.id("evalRuns"),
@@ -455,8 +380,7 @@ export const rejudgeRun = action({
 
     for (const row of results) {
       const golden = goldenByQuery.get(row.userQuery);
-      // If the query is no longer in the golden-set, fall back to the
-      // stored reference — we can still apply the identical-CHQL upgrade.
+      // Fall back to stored reference when the query is no longer in the golden set.
       const currentExpectedChql =
         golden?.expectedChql ?? row.expectedChql ?? "";
       const currentExpectedKkeys =
@@ -473,27 +397,21 @@ export const rejudgeRun = action({
         row.metrics.chqlEquivalent;
 
       if (!actualChql) {
-        // No model output to judge.
         newChqlEquivalent = "actual_error";
       } else if (
         currentExpectedChql &&
         normalizeChql(actualChql) === normalizeChql(currentExpectedChql)
       ) {
-        // Identical strings ⇒ identical row sets ⇒ equivalent, regardless
-        // of the stored verdict. Covers the expected_empty false-failures
-        // and any reference-fix where the model happened to produce the
-        // corrected CHQL.
+        // Identical strings ⇒ identical row sets ⇒ equivalent, regardless of stored verdict.
         newChqlEquivalent = "equivalent";
       } else if (referenceChanged) {
-        // Text differs against a new reference — we can't judge without
-        // executing. Clear the old verdict to flag it.
+        // Text differs against a new reference — can't judge without executing; clear to flag.
         newChqlEquivalent = undefined;
       }
-      // Otherwise: reference unchanged and strings differ ⇒ keep stored verdict.
+      // Else: reference unchanged + strings differ ⇒ keep stored verdict.
 
       const newSuccess = newChqlEquivalent === "equivalent";
 
-      // Recompute kkeysCorrect against the (possibly new) reference.
       let newKkeysCorrect: boolean | undefined = row.metrics.kkeysCorrect;
       if (actualChql && currentExpectedKkeys.length > 0) {
         const actualKkeys = extractKkeys(actualChql);
@@ -545,9 +463,8 @@ export const rejudgeRun = action({
   },
 });
 
-// Trim + collapse internal whitespace so `K0014 = '9891978'` and
-// `K0014='9891978'` compare equal. Anything more (quote/operator reordering)
-// would need the CHQL parser — unnecessary for this backfill.
+// Whitespace-only normalize: `K0014 = '9891978'` == `K0014='9891978'`.
+// Anything stronger (operator reordering) would need the CHQL parser.
 function normalizeChql(s: string): string {
   return s.trim().replace(/\s+/g, " ");
 }

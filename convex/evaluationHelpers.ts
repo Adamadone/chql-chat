@@ -1,24 +1,15 @@
-/**
- * @module convex/evaluationHelpers — Mutations and queries for eval data
- *
- * Separated from evaluation.ts because Convex requires mutations/queries
- * to run in the default (non-Node.js) runtime, while actions with AI SDK
- * imports need "use node".
- */
+// See ./CONTEXT.md for module overview.
+// Split from evaluation.ts because mutations/queries must run in Convex's default
+// V8 runtime, while the AI-SDK-dependent actions in evaluation.ts need "use node".
 
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 
-// ─── Shared Aggregate Math ──────────────────────────────────────────────────
+// ─── Shared aggregate math ──────────────────────────────────────────────────
 
-/**
- * Computes aggregate metrics over a set of eval result rows.
- *
- * Used by both `finalizeEvalRun` (end of a live run) and `rejudgeRun`
- * (recomputing after historical rows have been repatched). Only attempt-1
- * rows count toward rate/average metrics; cost includes every attempt.
- */
+// Used by both finalizeEvalRun (live runs) and recomputeRunAggregates (rejudge).
+// Rate/average metrics use attempt-1 rows only; cost sums every attempt.
 export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
   const firstAttempts = results.filter((r) => r.attempt === 1);
 
@@ -65,7 +56,7 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
   };
 }
 
-// ─── Internal Mutations ─────────────────────────────────────────────────────
+// ─── Internal mutations ─────────────────────────────────────────────────────
 
 export const createEvalRun = internalMutation({
   args: {
@@ -114,18 +105,7 @@ export const updateEvalRunStatus = internalMutation({
   },
 });
 
-/**
- * Computes aggregate metrics over an eval run's results and marks it completed.
- *
- * Called from the last scheduled `runQueryAction` in the chain. Uses only
- * attempt-1 rows for rate/average calculations to preserve the semantics of
- * the old synchronous runEval — retries still cost money (summed into
- * totalCostUsd) but don't double-count for success rate.
- *
- * If a queryIndex is missing an attempt-1 row (shouldn't happen under normal
- * flow, but guards against a dropped scheduler hop), it's skipped in the
- * rate denominator.
- */
+/** Final mutation in the scheduler chain: sets status=completed + completedAt + aggregates. */
 export const finalizeEvalRun = internalMutation({
   args: {
     runId: v.id("evalRuns"),
@@ -186,10 +166,6 @@ export const insertEvalResult = internalMutation({
   },
 });
 
-/**
- * Returns all result rows for a given run. Used by `rejudgeRun` to iterate
- * historical rows without pulling them through the CSV export path.
- */
 export const getResultsForRun = internalQuery({
   args: { runId: v.id("evalRuns") },
   handler: async (ctx, args) => {
@@ -200,13 +176,7 @@ export const getResultsForRun = internalQuery({
   },
 });
 
-/**
- * Patches a single eval result row. Called by `rejudgeRun` when the
- * golden-set reference has changed since the row was recorded, or when
- * the equivalence verdict needs correcting after the logic fix.
- *
- * `metrics` is replaced wholesale — caller must supply the full object.
- */
+/** `metrics` is replaced wholesale — caller must supply the full object. */
 export const patchEvalResultFields = internalMutation({
   args: {
     resultId: v.id("evalResults"),
@@ -238,11 +208,7 @@ export const patchEvalResultFields = internalMutation({
   },
 });
 
-/**
- * Recomputes and patches a run's aggregateMetrics from its current rows.
- * Unlike `finalizeEvalRun`, does not touch `status` or `completedAt` —
- * the original completion time stays intact when rejudging historical data.
- */
+/** Like finalizeEvalRun but leaves status/completedAt alone (used by rejudgeRun). */
 export const recomputeRunAggregates = internalMutation({
   args: { runId: v.id("evalRuns") },
   handler: async (ctx, args) => {
@@ -259,9 +225,6 @@ export const recomputeRunAggregates = internalMutation({
 
 // ─── Queries ────────────────────────────────────────────────────────────────
 
-/**
- * Exports eval results as a CSV string for the given run IDs.
- */
 export const exportResults = query({
   args: {
     runIds: v.array(v.id("evalRuns")),
@@ -308,12 +271,7 @@ export const exportResults = query({
   },
 });
 
-/**
- * Returns per-run aggregate metrics for the given run IDs, in the same order.
- * Used by the aggregate-summary script to build the side-by-side thesis table
- * without re-executing any queries — the numbers here are already finalized
- * by `finalizeEvalRun`.
- */
+/** Per-run aggregates in input order. Consumed by eval/aggregate-summary.ts. */
 export const exportAggregates = query({
   args: {
     runIds: v.array(v.id("evalRuns")),
@@ -341,9 +299,6 @@ export const exportAggregates = query({
   },
 });
 
-/**
- * Lists all eval runs, optionally filtered by model.
- */
 export const listRuns = query({
   args: {
     modelId: v.optional(v.string()),

@@ -32,9 +32,7 @@ export function ChatInput({
 }: ChatInputProps) {
   const [input, setInputState] = useState(() => getDraft(chatId));
   const prevChatIdRef = useRef(chatId);
-  // Restore the saved draft when switching chats. The parent stores drafts
-  // in a ref (no re-render on keystroke), so this effect only fires on
-  // chatId change.
+  // Restore saved draft on chat switch. Parent stores drafts in a ref (no re-render on keystroke).
   useEffect(() => {
     if (prevChatIdRef.current !== chatId) {
       prevChatIdRef.current = chatId;
@@ -93,11 +91,8 @@ export function ChatInput({
 
       activeChatRef.current = targetChatId;
 
-      // Fire title generation in parallel with the LLM turn — it only needs
-      // the user's text, not the assistant's reply. Passing userMessage
-      // explicitly lets generateTitle skip the DB roundtrip for the first
-      // message and start its own short LLM call immediately, so the title
-      // appears in the sidebar within ~1s instead of after the full turn.
+      // Parallel with the LLM turn — passing userMessage skips the DB roundtrip
+      // so the title appears in the sidebar within ~1s instead of after the full turn.
       const titlePromise = generateTitle({
         chatId: targetChatId,
         userMessage: trimmed,
@@ -115,8 +110,7 @@ export function ChatInput({
         console.error("AI processing failed:", result.error);
       }
 
-      // Don't block the UI on the title (it's already in flight), but keep
-      // the promise alive so its error surfaces in the console.
+      // Keep promise alive so errors surface; don't await — UI doesn't block on the title.
       void titlePromise;
     } catch (error) {
       if (abortedRef.current) return;

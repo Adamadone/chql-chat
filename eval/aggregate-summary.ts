@@ -1,10 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Builds a side-by-side aggregate CSV with one row per model.
- *
- * Pulls cloud-model aggregates from Convex (run IDs listed in
- * eval/results/run-ids.json) and appends local-model aggregates from the
- * JSON reports written by run-local.ts.
+ * Side-by-side per-model aggregate CSV (cloud via Convex + local via JSON reports). See ./CONTEXT.md.
  *
  * Usage:
  *   npx tsx aggregate-summary.ts                                   # uses run-ids.json + all results/*.json locals
@@ -75,19 +71,12 @@ interface LocalEvalReport {
 
 // ─── Convex CLI bridge ──────────────────────────────────────────────────────
 
-/**
- * Runs `npx dotenvx run -- npx convex run <fn> <argJson>` and returns the
- * parsed JSON payload. dotenvx prints a banner line before the payload,
- * so we skip until the first line that starts with `[` or `{`.
- */
+/** Shells out via `npx dotenvx run -- npx convex run <fn> <argJson>` and parses the JSON payload. */
 function convexRun<T>(fnName: string, argObj: unknown): T {
   const argJson = JSON.stringify(argObj);
   const isWin = process.platform === "win32";
 
-  // On Windows with shell:true, cmd.exe strips one layer of double-quotes from
-  // each arg, turning our JSON into invalid JSON5. Wrap the JSON in outer
-  // quotes and escape inner quotes so one round-trip through cmd.exe yields
-  // the original string.
+  // Win cmd.exe with shell:true strips one layer of double-quotes; pre-escape so the JSON round-trips.
   const quotedJson = isWin
     ? `"${argJson.replace(/"/g, '\\"')}"`
     : argJson;
@@ -113,9 +102,7 @@ function convexRun<T>(fnName: string, argObj: unknown): T {
     stdio: ["ignore", "pipe", "inherit"],
   });
 
-  // Strip ANSI escapes, then locate the JSON payload. dotenvx prints banners
-  // like `[dotenvx@1.52.0] injecting env ...` that also start with `[`, so
-  // we have to skip those explicitly before looking for the array/object.
+  // Strip ANSI; skip dotenvx's `[dotenvx@...]` banner; find the first array/object line.
   const cleaned = raw.replace(/\x1b\[[0-9;]*m/g, "");
   const lines = cleaned.split(/\r?\n/);
   const startIdx = lines.findIndex((l) => {
@@ -183,7 +170,6 @@ function main() {
   const { runIdsPath, localJsonFiles } = parseArgs();
   const rows: string[] = [CSV_HEADER];
 
-  // 1. Cloud rows from Convex
   const idsFile =
     runIdsPath ?? join(__dirname, "results", "run-ids.json");
   const runIdsRaw = JSON.parse(readFileSync(idsFile, "utf-8")) as {
@@ -215,7 +201,6 @@ function main() {
     console.log("(no run IDs in run-ids.json, skipping Convex fetch)");
   }
 
-  // 2. Local rows from JSON files
   const localFiles =
     localJsonFiles.length > 0
       ? localJsonFiles
@@ -229,7 +214,6 @@ function main() {
     console.log(`   ✓ ${report.modelId} (local, ${basename(jsonFile)})`);
   }
 
-  // 3. Write merged CSV
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputPath = join(
     __dirname,
@@ -243,11 +227,7 @@ function main() {
   console.log(rows.join("\n"));
 }
 
-/**
- * When --local isn't given, default to every *.json in eval/results/ except
- * run-ids.json. Local eval reports all have the qwen-style filename, but
- * being permissive keeps this generic for future local models.
- */
+// Default to every *.json in eval/results/ except run-ids.json — generic for any future local model.
 function defaultLocalFiles(resultsDir: string): string[] {
   try {
     return readdirSync(resultsDir)

@@ -27,11 +27,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ─── Wire type (mirrors @chql-chat/chql-core SearchEnvelope) ────────────────
-// We don't import from chql-core to keep node:crypto out of the browser
-// bundle. The shape is enforced server-side by the MCP envelope builder; we
-// runtime-validate the minimum fields at the top of the component.
-
+// Local wire type mirroring SearchEnvelope. Not imported from chql-core to keep
+// node:crypto out of the browser bundle; runtime-validated via isEnvelope below.
 interface EnvelopeShape {
   rowCount: number;
   measurementCount?: number;
@@ -62,11 +59,7 @@ function isEnvelope(x: unknown): x is EnvelopeShape {
   );
 }
 
-/**
- * Cheap parent-side check: should the table component be rendered at all?
- * Lets the message bubble skip mounting the component when there's nothing
- * to show (no envelope, malformed envelope, or empty result set).
- */
+/** Parent-side gate: skip mounting on missing/malformed/empty envelopes. */
 export function shouldRenderMeasurementTable(envelope: unknown): boolean {
   return isEnvelope(envelope) && envelope.rowCount > 0;
 }
@@ -80,10 +73,9 @@ function formatScalar(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** Trim ISO timestamps (`2026-05-23T14:59:11+02:00`) to `2026-05-23 14:59:11`. */
+/** ISO timestamp → `YYYY-MM-DD HH:MM:SS` (drops the `T` and offset). */
 function formatTimestamp(value: unknown): string {
   if (typeof value !== "string") return formatScalar(value);
-  // Match "YYYY-MM-DDTHH:MM:SS" prefix and rewrite the T as a space.
   const m = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
   return m ? `${m[1]} ${m[2]}` : value;
 }
@@ -96,27 +88,22 @@ const MIN_COL_WIDTH_PX = 96;
 const MAX_PART_BODY_HEIGHT_PX = 360;
 
 // ─── Pivot logic ────────────────────────────────────────────────────────────
-//
-// The flat envelope rows are one-per-value (K0001) with all parent K-keys
-// merged in. We re-derive the (part, characteristic, K0000) groupings here
-// to render the table the way the user thinks about the data: rows are
-// measurement events, columns are characteristics.
+// Re-derive (part, characteristic, K0000) groupings from the flat envelope rows
+// so the table shows measurement events as rows, characteristics as columns.
 
 type Row = Record<string, unknown>;
 
 interface CharacteristicCol {
-  /** Stable identity for React keys + de-dup. */
   charKey: string;
   /** Header label: K2002 if present, else the raw key. */
   label: string;
-  /** Unit suffix (K2142) rendered in parentheses after the label. */
+  /** Unit suffix (K2142). */
   unit?: string;
 }
 
 interface PivotCell {
-  /** The measured value (K0001) for this (event, characteristic). */
+  /** K0001 measured value. */
   value: unknown;
-  /** Per-value K-keys for the tooltip. */
   K0002?: unknown;
   K0007?: unknown;
   K0010?: unknown;
@@ -126,17 +113,15 @@ interface PivotCell {
 }
 
 interface PivotEvent {
-  /** The measurement event identity (K0000 stringified). */
+  /** K0000 stringified. */
   eventKey: string;
-  /** Timestamp (K0004) — first non-null across the event's source rows. */
+  /** K0004 — first non-null across the event's source rows. */
   timestamp?: unknown;
-  /** Cells keyed by `charKey`. */
   cells: Map<string, PivotCell>;
 }
 
 interface PivotedPart {
   partKey: string;
-  /** K1001/K1002/K1003/K1008 from the part's first row, for the caption. */
   caption: {
     K1000?: unknown;
     K1001?: unknown;
@@ -146,7 +131,7 @@ interface PivotedPart {
   };
   characteristics: CharacteristicCol[];
   events: PivotEvent[];
-  /** Source rows for this part that had no K0000 — surfaced as a footnote. */
+  /** Source rows missing K0000 — surfaced as a footnote count. */
   ungroupedValueCount: number;
 }
 
@@ -168,9 +153,8 @@ function charKeyOf(row: Row): string {
 
 function pivot(rows: Row[]): PivotedPart[] {
   const parts = new Map<string, PivotedPart>();
-  // Track characteristic insertion order per part so columns stay stable.
+  // Insertion-ordered per part so columns and rows render in source order.
   const partCharIdx = new Map<string, Map<string, number>>();
-  // Track event insertion order per part so rows stay in source order.
   const partEventIdx = new Map<string, Map<string, number>>();
 
   for (const row of rows) {
@@ -195,7 +179,6 @@ function pivot(rows: Row[]): PivotedPart[] {
       partEventIdx.set(pKey, new Map());
     }
 
-    // Track this characteristic for this part.
     const cKey = charKeyOf(row);
     const charIdx = partCharIdx.get(pKey)!;
     if (!charIdx.has(cKey)) {
@@ -210,8 +193,7 @@ function pivot(rows: Row[]): PivotedPart[] {
       });
     }
 
-    // K0000 groups values into one measurement event. Without it we can't
-    // pivot reliably; surface those rows as an "ungrouped" footnote count.
+    // K0000 groups values into a measurement event; rows missing it can't be pivoted.
     const k0000 = row.K0000;
     if (k0000 === undefined || k0000 === null) {
       part.ungroupedValueCount += 1;
@@ -248,7 +230,6 @@ function pivot(rows: Row[]): PivotedPart[] {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-/** Build a short, readable label for a part — used in the dropdown trigger + items. */
 function partLabel(part: PivotedPart): { description: string; number?: string } {
   const description =
     typeof part.caption.K1002 === "string" && part.caption.K1002.length > 0
@@ -274,7 +255,6 @@ export function MeasurementTable({
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
   const infoContentRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the click-controlled info tooltip on outside click or Escape.
   useEffect(() => {
     if (!infoOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -299,9 +279,7 @@ export function MeasurementTable({
     return pivot(envelope.rows);
   }, [envelope]);
 
-  // Resolve which part to render. Preserves the user's selection across
-  // pagination when the same partKey still appears on the new page; falls
-  // back to the first part otherwise.
+  // Preserve user selection across pagination if the same partKey survives.
   const activePart = useMemo<PivotedPart | null>(() => {
     if (parts.length === 0) return null;
     if (selectedPartKey) {
@@ -315,7 +293,7 @@ export function MeasurementTable({
   if (envelope.rowCount === 0 || parts.length === 0 || !activePart) return null;
 
   const { pageNumber, pageSize } = envelope.page;
-  // We don't know the total; assume more if the page came back full.
+  // chy.stat doesn't return a total; assume more if the page came back full.
   const hasNext = envelope.rows.length >= pageSize;
   const hasPrev = pageNumber > 1;
 
@@ -499,7 +477,6 @@ function PartTable({
       ? String(part.caption.K1001)
       : undefined;
 
-  // One timestamp column + one per characteristic.
   const totalColumns = 1 + part.characteristics.length;
   const gridCols = `minmax(140px, 1.4fr) repeat(${part.characteristics.length}, minmax(${MIN_COL_WIDTH_PX}px, 1fr))`;
   const tableMinWidth = totalColumns * MIN_COL_WIDTH_PX;

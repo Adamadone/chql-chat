@@ -1,7 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Merges Convex-exported CSV results with local eval JSON results into
- * a single unified CSV file for analysis.
+ * Merges Convex-exported CSV + local JSON reports into a single CSV. See ./CONTEXT.md.
  *
  * Usage:
  *   npx tsx merge-results.ts --convex results/convex-export.csv --local results/qwen3-4b-*.json
@@ -27,13 +26,12 @@ function parseArgs() {
     if (args[i] === "--convex" && args[i + 1]) {
       convexCsv = args[++i];
     } else if (args[i] === "--local" && args[i + 1]) {
-      // Collect all following args until next flag
       i++;
       while (i < args.length && !args[i].startsWith("--")) {
         localJsonFiles.push(args[i]);
         i++;
       }
-      i--; // Back up one since the for loop will increment
+      i--;
     }
   }
 
@@ -90,19 +88,16 @@ function main() {
     process.exit(1);
   }
 
-  // 1. Read Convex CSV (if provided)
   if (config.convexCsv) {
     console.log(`📄 Reading Convex CSV: ${config.convexCsv}`);
     const csv = readFileSync(config.convexCsv, "utf-8");
     const lines = csv.split("\n").filter((l) => l.trim());
-    // Skip header, add all data rows
     for (let i = 1; i < lines.length; i++) {
       allRows.push(lines[i]);
     }
     console.log(`   Added ${lines.length - 1} rows from Convex export.`);
   }
 
-  // 2. Read local JSON results (if provided)
   for (const jsonFile of config.localJsonFiles) {
     console.log(`📄 Reading local JSON: ${jsonFile}`);
     const report: LocalEvalReport = JSON.parse(readFileSync(jsonFile, "utf-8"));
@@ -133,7 +128,6 @@ function main() {
     console.log(`   Added ${rowCount} rows from ${basename(jsonFile)}.`);
   }
 
-  // 3. Write merged CSV
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputPath = join(__dirname, "results", `merged-${timestamp}.csv`);
   writeFileSync(outputPath, allRows.join("\n"));

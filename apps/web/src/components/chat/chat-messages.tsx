@@ -111,7 +111,6 @@ export function ChatMessages({
         </div>
       </ScrollArea>
 
-      {/* Jump to bottom — animated in/out */}
       <div
         className={cn(
           "absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-all duration-200",
