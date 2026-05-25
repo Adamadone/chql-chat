@@ -1,11 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * Local eval runner for self-hosted models (e.g. Qwen 3 4B via vLLM). See ./CONTEXT.md.
+ * Local eval runner for self-hosted models (LM Studio, vLLM, etc.). See ./CONTEXT.md.
  *
  * Usage:
- *   npx tsx run-local.ts                                          # defaults
- *   npx tsx run-local.ts --model qwen3-4b                         # custom model name
- *   npx tsx run-local.ts --vllm-url http://localhost:8000/v1      # custom vLLM URL
+ *   npx tsx run-local.ts                                          # golden set, defaults
+ *   npx tsx run-local.ts --set sample                             # 3-question smoke set
+ *   npx tsx run-local.ts --model ministral-3-8b-instruct-2512     # custom model name
+ *   npx tsx run-local.ts --vllm-url http://localhost:8000/v1      # custom OpenAI-compatible URL
  *   npx tsx run-local.ts --mcp-url http://localhost:3001/mcp      # custom MCP URL
  */
 
@@ -19,11 +20,19 @@ import { fileURLToPath } from "url";
 import {
   buildSystemPrompt,
   extractKkeys,
+  gradeResult,
   hashMCPResponseText,
   kkeysMatch,
   parseChql,
   stripToolTags,
+  type ChqlEquivalent,
+  type GoldenQuestion,
+  type ModelOutput,
+  type Verdict,
 } from "@chql-chat/chql-core";
+import { renderReport, type PerQuestionRow } from "./lib/render-report.js";
+
+const METHODOLOGY_VERSION = "v2";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -48,51 +57,55 @@ function parseArgs() {
       }
     }
   }
+  const set = (parsed["set"] ?? process.env.EVAL_SET ?? "golden") as
+    | "golden"
+    | "sample";
+  if (set !== "golden" && set !== "sample") {
+    console.error(`Invalid --set value: ${set}. Expected "golden" or "sample".`);
+    process.exit(1);
+  }
+  const model = parsed["model"] ?? process.env.MODEL;
+  if (!model) {
+    console.error(
+      "Missing --model. Pass it as a flag (--model <id>) or via the MODEL env var.\n" +
+        "Tip: `curl http://localhost:1234/v1/models` to see what LM Studio is serving.",
+    );
+    process.exit(1);
+  }
   return {
-    model: parsed["model"] ?? "qwen3-4b-qwen3.6-plus-reasoning-distilled",
+    model,
     vllmUrl: parsed["vllm-url"] ?? "http://localhost:1234/v1",
     mcpUrl: parsed["mcp-url"] ?? process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp",
     mcpAuthToken: parsed["mcp-auth-token"] ?? process.env.MCP_AUTH_TOKEN,
+    set,
   };
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface GoldenQuery {
-  query: string;
-  expectedChql: string;
-  expectedKkeys: string[];
-}
-
-type ChqlEquivalent =
-  | "equivalent"
-  | "different"
-  | "expected_empty"
-  | "actual_error";
-
 interface EvalResult {
-  queryIndex: number;
-  userQuery: string;
-  expectedChql: string;
-  expectedKkeys: string[];
-  actualChql?: string;
-  modelResponse?: string;
-  attempt: number;
+  question: GoldenQuestion;
+  actualChql: string | null;
+  modelResponse: string;
+  usedTool: boolean;
   success: boolean;
+  verdict: Verdict;
+  reason: string;
   metrics: {
     responseTimeMs: number;
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
-    usedTool: boolean;
-    kkeysCorrect?: boolean;
     chqlParses?: boolean;
+    kkeysCorrect?: boolean;
     chqlEquivalent?: ChqlEquivalent;
   };
 }
 
 interface EvalReport {
   modelId: string;
+  set: "golden" | "sample";
+  methodologyVersion: string;
   vllmUrl: string;
   startedAt: string;
   completedAt: string;
@@ -169,9 +182,13 @@ async function getMCPToolsAsAISDKTools(mcpClient: Client): Promise<ToolSet> {
 async function computeEquivalence(
   mcpClient: Client,
   actualChql: string | undefined,
-  expectedChql: string,
-): Promise<ChqlEquivalent> {
-  if (!actualChql) return "actual_error";
+  expectedChql: string | null,
+): Promise<ChqlEquivalent | undefined> {
+  if (!actualChql) return undefined;
+  if (expectedChql === null) {
+    // No reference to compare against (refusal/clarification question). Equivalence is undefined.
+    return undefined;
+  }
 
   let actualText: { text: string; isError: boolean };
   try {
@@ -208,7 +225,7 @@ const MAX_TOOL_ROUNDS = 5;
 const MAX_OUTPUT_TOKENS = 16384;
 
 async function runSingleQuery(
-  queryEntry: GoldenQuery,
+  question: GoldenQuestion,
   model: ReturnType<ReturnType<typeof createOpenAI>>,
   mcpClient: Client,
   tools: ToolSet,
@@ -220,18 +237,18 @@ async function runSingleQuery(
   outputTokens: number;
   totalTokens: number;
   responseTimeMs: number;
-  chqlEquivalent: ChqlEquivalent;
+  chqlEquivalent?: ChqlEquivalent;
 }> {
   const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
 
   let dslQuery: string | undefined;
-  let toolCalls: string[] = [];
+  const toolCalls: string[] = [];
 
   const startTime = Date.now();
   const result = await generateText({
     model,
     system: systemPrompt,
-    messages: [{ role: "user", content: queryEntry.query }],
+    messages: [{ role: "user", content: question.query }],
     tools: Object.keys(tools).length > 0 ? tools : undefined,
     stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -256,7 +273,7 @@ async function runSingleQuery(
   const chqlEquivalent = await computeEquivalence(
     mcpClient,
     dslQuery,
-    queryEntry.expectedChql,
+    question.expectedChql,
   );
 
   return {
@@ -279,12 +296,14 @@ async function main() {
 
   console.log(`\n🔧 Local Eval Runner`);
   console.log(`   Model:    ${config.model}`);
+  console.log(`   Set:      ${config.set}`);
   console.log(`   vLLM URL: ${config.vllmUrl}`);
   console.log(`   MCP URL:  ${config.mcpUrl}\n`);
 
-  const goldenSetPath = join(__dirname, "golden-set.json");
-  const queries: GoldenQuery[] = JSON.parse(readFileSync(goldenSetPath, "utf-8"));
-  console.log(`📋 Loaded ${queries.length} test queries from golden-set.json\n`);
+  const setFile = config.set === "sample" ? "sample-set.json" : "golden-set.json";
+  const setPath = join(__dirname, setFile);
+  const questions: GoldenQuestion[] = JSON.parse(readFileSync(setPath, "utf-8"));
+  console.log(`📋 Loaded ${questions.length} questions from ${setFile}\n`);
 
   const localProvider = createOpenAI({
     baseURL: config.vllmUrl,
@@ -312,126 +331,117 @@ async function main() {
   }
 
   const results: EvalResult[] = [];
-  let successCount = 0;
-  let toolUsageCount = 0;
-  let chqlParsesCount = 0;
-  let equivalenceCount = 0;
-  let kkeysCorrectCount = 0;
-  let totalResponseTime = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalTokensAll = 0;
-  let validResultCount = 0;
-
   const startedAt = new Date().toISOString();
 
-  for (let i = 0; i < queries.length; i++) {
-    const queryEntry = queries[i];
+  for (let i = 0; i < questions.length; i++) {
+    const question = questions[i];
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        console.log(
-          `[${i + 1}/${queries.length}] (attempt ${attempt}) "${queryEntry.query}"`,
-        );
+    try {
+      console.log(`[${i + 1}/${questions.length}] "${question.query}"`);
 
-        const result = await runSingleQuery(queryEntry, model, mcpClient, tools);
+      const result = await runSingleQuery(question, model, mcpClient, tools);
 
-        const usedTool = result.usedTool;
-        const actualChql = result.dslQuery;
-        const chqlParses = actualChql ? parseChql(actualChql).ok : undefined;
+      const actualChql = result.dslQuery ?? null;
+      const chqlParses = actualChql ? parseChql(actualChql).ok : undefined;
 
-        let kkeysCorrect: boolean | undefined;
-        if (actualChql && queryEntry.expectedKkeys.length > 0) {
-          const actualKkeys = extractKkeys(actualChql);
-          kkeysCorrect = kkeysMatch(actualKkeys, queryEntry.expectedKkeys);
-        }
-
-        const success = result.chqlEquivalent === "equivalent";
-
-        const evalResult: EvalResult = {
-          queryIndex: i,
-          userQuery: queryEntry.query,
-          expectedChql: queryEntry.expectedChql,
-          expectedKkeys: queryEntry.expectedKkeys,
-          actualChql,
-          modelResponse: result.response.slice(0, 2000),
-          attempt,
-          success,
-          metrics: {
-            responseTimeMs: result.responseTimeMs,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            totalTokens: result.totalTokens,
-            usedTool,
-            kkeysCorrect,
-            chqlParses,
-            chqlEquivalent: result.chqlEquivalent,
-          },
-        };
-        results.push(evalResult);
-
-        if (attempt === 1 || !success) {
-          validResultCount++;
-          if (success) successCount++;
-          if (usedTool) toolUsageCount++;
-          if (chqlParses) chqlParsesCount++;
-          if (result.chqlEquivalent === "equivalent") equivalenceCount++;
-          if (kkeysCorrect) kkeysCorrectCount++;
-          totalResponseTime += result.responseTimeMs;
-          totalInputTokens += result.inputTokens;
-          totalOutputTokens += result.outputTokens;
-          totalTokensAll += result.totalTokens;
-        }
-
-        const status = success ? "✅" : "❌";
-        console.log(
-          `   ${status} CHQL: ${actualChql ?? "(none)"} | ${result.responseTimeMs}ms | ${result.totalTokens} tokens`,
-        );
-
-        if (success) break;
-        if (attempt < 2) console.log(`   ↻ Retrying...`);
-      } catch (error) {
-        console.error(`   ❌ Error:`, error instanceof Error ? error.message : error);
-
-        results.push({
-          queryIndex: i,
-          userQuery: queryEntry.query,
-          expectedChql: queryEntry.expectedChql,
-          expectedKkeys: queryEntry.expectedKkeys,
-          attempt,
-          success: false,
-          metrics: {
-            responseTimeMs: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            usedTool: false,
-            chqlEquivalent: "actual_error",
-          },
-        });
-
-        if (attempt === 1) validResultCount++;
+      let kkeysCorrect: boolean | undefined;
+      if (
+        actualChql &&
+        question.expectedKkeys &&
+        question.expectedKkeys.length > 0
+      ) {
+        const actualKkeys = extractKkeys(actualChql);
+        kkeysCorrect = kkeysMatch(actualKkeys, question.expectedKkeys);
       }
+
+      const modelOutput: ModelOutput = {
+        actualChql,
+        usedTool: result.usedTool,
+        chqlEquivalent: result.chqlEquivalent,
+      };
+      const graded = gradeResult(question, modelOutput);
+
+      results.push({
+        question,
+        actualChql,
+        modelResponse: result.response.slice(0, 4000),
+        usedTool: result.usedTool,
+        success: graded.success,
+        verdict: graded.verdict,
+        reason: graded.reason,
+        metrics: {
+          responseTimeMs: result.responseTimeMs,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          totalTokens: result.totalTokens,
+          chqlParses,
+          kkeysCorrect,
+          chqlEquivalent: result.chqlEquivalent,
+        },
+      });
+
+      const status = graded.success ? "✅" : "❌";
+      console.log(
+        `   ${status} ${graded.verdict} · CHQL: ${actualChql ?? "(none)"} | ${result.responseTimeMs}ms | ${result.totalTokens} tokens`,
+      );
+    } catch (error) {
+      console.error(`   ❌ Error:`, error instanceof Error ? error.message : error);
+      const modelOutput: ModelOutput = {
+        actualChql: null,
+        usedTool: false,
+        chqlEquivalent: "actual_error",
+      };
+      const graded = gradeResult(question, modelOutput);
+      results.push({
+        question,
+        actualChql: null,
+        modelResponse: error instanceof Error ? error.message : String(error),
+        usedTool: false,
+        success: graded.success,
+        verdict: "actual_error",
+        reason: "runtime error during generation",
+        metrics: {
+          responseTimeMs: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          chqlEquivalent: "actual_error",
+        },
+      });
     }
   }
 
   await closeMCPClient(mcpClient);
 
-  const n = validResultCount || 1;
   const completedAt = new Date().toISOString();
+  const n = results.length || 1;
+
+  const successCount = results.filter((r) => r.success).length;
+  const toolUsageCount = results.filter((r) => r.usedTool).length;
+  const chqlParsesCount = results.filter((r) => r.metrics.chqlParses === true)
+    .length;
+  const equivalenceCount = results.filter(
+    (r) => r.metrics.chqlEquivalent === "equivalent",
+  ).length;
 
   const report: EvalReport = {
     modelId,
+    set: config.set,
+    methodologyVersion: METHODOLOGY_VERSION,
     vllmUrl: config.vllmUrl,
     startedAt,
     completedAt,
-    totalQueries: queries.length,
+    totalQueries: results.length,
     aggregateMetrics: {
       successRate: successCount / n,
-      avgResponseTimeMs: totalResponseTime / n,
-      avgInputTokens: totalInputTokens / n,
-      avgOutputTokens: totalOutputTokens / n,
-      avgTotalTokens: totalTokensAll / n,
+      avgResponseTimeMs:
+        results.reduce((s, r) => s + r.metrics.responseTimeMs, 0) / n,
+      avgInputTokens:
+        results.reduce((s, r) => s + r.metrics.inputTokens, 0) / n,
+      avgOutputTokens:
+        results.reduce((s, r) => s + r.metrics.outputTokens, 0) / n,
+      avgTotalTokens:
+        results.reduce((s, r) => s + r.metrics.totalTokens, 0) / n,
       chqlParsesRate: chqlParsesCount / n,
       equivalenceRate: equivalenceCount / n,
       toolUsageRate: toolUsageCount / n,
@@ -440,12 +450,47 @@ async function main() {
   };
 
   mkdirSync(join(__dirname, "results"), { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outputPath = join(__dirname, "results", `${config.model}-${timestamp}.json`);
-  writeFileSync(outputPath, JSON.stringify(report, null, 2));
+
+  const safeModelId = modelId.replace(/[\/\\:*?"<>|]/g, "_");
+  const jsonPath = join(__dirname, "results", `${safeModelId}.json`);
+  writeFileSync(jsonPath, JSON.stringify(report, null, 2));
+
+  const mdPath = join(__dirname, "results", `${safeModelId}.md`);
+  const perQuestion: PerQuestionRow[] = results.map((r) => ({
+    question: r.question,
+    actualChql: r.actualChql,
+    modelResponse: r.modelResponse,
+    usedTool: r.usedTool,
+    verdict: r.verdict,
+    success: r.success,
+    reason: r.reason,
+    chqlParses: r.metrics.chqlParses,
+    chqlEquivalent: r.metrics.chqlEquivalent,
+    kkeysCorrect: r.metrics.kkeysCorrect,
+    metrics: {
+      responseTimeMs: r.metrics.responseTimeMs,
+      inputTokens: r.metrics.inputTokens,
+      outputTokens: r.metrics.outputTokens,
+      totalTokens: r.metrics.totalTokens,
+    },
+  }));
+
+  const md = renderReport({
+    modelId,
+    set: config.set,
+    methodologyVersion: METHODOLOGY_VERSION,
+    runConfig: {
+      "vLLM URL": config.vllmUrl,
+      "MCP URL": config.mcpUrl,
+    },
+    startedAt,
+    completedAt,
+    results: perQuestion,
+  });
+  writeFileSync(mdPath, md);
 
   console.log(`\n${"═".repeat(60)}`);
-  console.log(`📊 Eval Results: ${config.model}`);
+  console.log(`📊 Eval Results: ${config.model} (${config.set})`);
   console.log(`${"═".repeat(60)}`);
   console.log(`   Success rate:      ${(report.aggregateMetrics.successRate * 100).toFixed(1)}%`);
   console.log(`   CHQL parses:       ${(report.aggregateMetrics.chqlParsesRate * 100).toFixed(1)}%`);
@@ -454,7 +499,8 @@ async function main() {
   console.log(`   Avg response time: ${report.aggregateMetrics.avgResponseTimeMs.toFixed(0)}ms`);
   console.log(`   Avg total tokens:  ${report.aggregateMetrics.avgTotalTokens.toFixed(0)}`);
   console.log(`${"═".repeat(60)}`);
-  console.log(`\n💾 Results saved to: ${outputPath}\n`);
+  console.log(`\n💾 JSON: ${jsonPath}`);
+  console.log(`💾 MD:   ${mdPath}\n`);
 }
 
 main().catch((err) => {

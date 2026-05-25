@@ -44,6 +44,7 @@ export default defineSchema({
       v.literal("failed"),
     ),
     totalQueries: v.number(),
+    methodologyVersion: v.optional(v.string()),
     aggregateMetrics: v.optional(
       v.object({
         successRate: v.number(),
@@ -63,6 +64,9 @@ export default defineSchema({
     runId: v.id("evalRuns"),
     queryIndex: v.number(),
     userQuery: v.string(),
+    questionId: v.optional(v.string()),
+    category: v.optional(v.string()),
+    expectedBehavior: v.optional(v.string()),
     expectedChql: v.optional(v.string()),
     expectedKkeys: v.optional(v.array(v.string())),
     actualChql: v.optional(v.string()),
@@ -86,6 +90,8 @@ export default defineSchema({
           v.literal("actual_error"),
         ),
       ),
+      verdict: v.optional(v.string()),
+      reason: v.optional(v.string()),
     }),
   }).index("by_run", ["runId"]),
 });

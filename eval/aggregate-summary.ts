@@ -3,13 +3,13 @@
  * Side-by-side per-model aggregate CSV (cloud via Convex + local via JSON reports). See ./CONTEXT.md.
  *
  * Usage:
- *   npx tsx aggregate-summary.ts                                   # uses run-ids.json + all results/*.json locals
- *   npx tsx aggregate-summary.ts --local results/qwen3-4b-*.json   # explicit local files
- *   npx tsx aggregate-summary.ts --run-ids results/run-ids.json    # explicit run-ids file
+ *   npx tsx aggregate-summary.ts                                   # default: all results/*.json (non-legacy)
+ *   npx tsx aggregate-summary.ts --local results/local-foo.json    # explicit list of local report files
+ *   npx tsx aggregate-summary.ts --run-ids results/run-ids.json    # also pull cloud runs from Convex
  */
 
 import { execFileSync } from "child_process";
-import { readFileSync, writeFileSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
 import { join, dirname, basename } from "path";
 import { fileURLToPath } from "url";
 
@@ -61,26 +61,28 @@ interface ConvexRunRow {
   startedAt?: number;
   completedAt?: number;
   totalQueries?: number;
+  methodologyVersion?: string;
   aggregateMetrics?: AggregateMetrics;
 }
 
+// v2 local report: { modelId, methodologyVersion, results: [...] }
 interface LocalEvalReport {
   modelId: string;
-  aggregateMetrics: AggregateMetrics;
+  methodologyVersion?: string;
+  aggregateMetrics?: AggregateMetrics;
+  results?: Array<{
+    success: boolean;
+    question?: { category: string };
+    category?: string;
+  }>;
 }
 
 // ─── Convex CLI bridge ──────────────────────────────────────────────────────
 
-/** Shells out via `npx dotenvx run -- npx convex run <fn> <argJson>` and parses the JSON payload. */
 function convexRun<T>(fnName: string, argObj: unknown): T {
   const argJson = JSON.stringify(argObj);
   const isWin = process.platform === "win32";
-
-  // Win cmd.exe with shell:true strips one layer of double-quotes; pre-escape so the JSON round-trips.
-  const quotedJson = isWin
-    ? `"${argJson.replace(/"/g, '\\"')}"`
-    : argJson;
-
+  const quotedJson = isWin ? `"${argJson.replace(/"/g, '\\"')}"` : argJson;
   const cmd = isWin ? "npx.cmd" : "npx";
   const args = [
     "dotenvx",
@@ -102,7 +104,6 @@ function convexRun<T>(fnName: string, argObj: unknown): T {
     stdio: ["ignore", "pipe", "inherit"],
   });
 
-  // Strip ANSI; skip dotenvx's `[dotenvx@...]` banner; find the first array/object line.
   const cleaned = raw.replace(/\x1b\[[0-9;]*m/g, "");
   const lines = cleaned.split(/\r?\n/);
   const startIdx = lines.findIndex((l) => {
@@ -111,9 +112,7 @@ function convexRun<T>(fnName: string, argObj: unknown): T {
     return t.startsWith("[") || t.startsWith("{");
   });
   if (startIdx < 0) {
-    throw new Error(
-      `Could not find JSON payload in convex output:\n${cleaned}`,
-    );
+    throw new Error(`Could not find JSON payload in convex output:\n${cleaned}`);
   }
   const payload = lines.slice(startIdx).join("\n").trim();
   return JSON.parse(payload) as T;
@@ -133,8 +132,22 @@ function num(n: number | undefined, digits = 6): string {
   return Number(n.toFixed(digits)).toString();
 }
 
-const CSV_HEADER = [
+const CATEGORIES = [
+  "simple_single",
+  "simple_and",
+  "datetime",
+  "part_char_value",
+  "regex",
+  "rejected",
+  "ambiguous",
+  "common_language",
+  "injection",
+  "errors",
+] as const;
+
+const HEADER = [
   "model",
+  "methodology_version",
   "success_rate",
   "chql_parse_rate",
   "chql_equivalence_rate",
@@ -144,61 +157,90 @@ const CSV_HEADER = [
   "avg_output_tokens",
   "avg_total_tokens",
   "total_cost_usd",
+  ...CATEGORIES.map((c) => `success_rate__${c}`),
 ].join(",");
 
-function formatRow(modelId: string, m: AggregateMetrics | undefined): string {
-  if (!m) {
-    return [csvEscape(modelId), "", "", "", "", "", "", "", "", ""].join(",");
-  }
-  return [
+function formatRow(
+  modelId: string,
+  methodologyVersion: string | undefined,
+  m: AggregateMetrics | undefined,
+  perCategory: Map<string, { n: number; succ: number }> | undefined,
+): string {
+  const base = [
     csvEscape(modelId),
-    num(m.successRate, 4),
-    num(m.chqlParsesRate, 4),
-    num(m.equivalenceRate, 4),
-    num(m.toolUsageRate, 4),
-    num(m.avgResponseTimeMs, 2),
-    num(m.avgInputTokens, 2),
-    num(m.avgOutputTokens, 2),
-    num(m.avgTotalTokens, 2),
-    num(m.totalCostUsd, 6),
-  ].join(",");
+    csvEscape(methodologyVersion ?? ""),
+    num(m?.successRate, 4),
+    num(m?.chqlParsesRate, 4),
+    num(m?.equivalenceRate, 4),
+    num(m?.toolUsageRate, 4),
+    num(m?.avgResponseTimeMs, 2),
+    num(m?.avgInputTokens, 2),
+    num(m?.avgOutputTokens, 2),
+    num(m?.avgTotalTokens, 2),
+    num(m?.totalCostUsd, 6),
+  ];
+  for (const cat of CATEGORIES) {
+    const c = perCategory?.get(cat);
+    base.push(c && c.n > 0 ? num(c.succ / c.n, 4) : "");
+  }
+  return base.join(",");
+}
+
+function categoryBreakdownFromLocal(
+  report: LocalEvalReport,
+): Map<string, { n: number; succ: number }> {
+  const out = new Map<string, { n: number; succ: number }>();
+  for (const r of report.results ?? []) {
+    const cat = r.question?.category ?? r.category;
+    if (!cat) continue;
+    const entry = out.get(cat) ?? { n: 0, succ: 0 };
+    entry.n++;
+    if (r.success) entry.succ++;
+    out.set(cat, entry);
+  }
+  return out;
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 function main() {
   const { runIdsPath, localJsonFiles } = parseArgs();
-  const rows: string[] = [CSV_HEADER];
+  const rows: string[] = [HEADER];
 
-  const idsFile =
-    runIdsPath ?? join(__dirname, "results", "run-ids.json");
-  const runIdsRaw = JSON.parse(readFileSync(idsFile, "utf-8")) as {
-    runIds: string[];
-  };
-  const runIds = runIdsRaw.runIds ?? [];
-
-  if (runIds.length > 0) {
-    console.log(`📡 Fetching ${runIds.length} runs from Convex...`);
-    const convexRows = convexRun<ConvexRunRow[]>(
-      "evaluationHelpers:exportAggregates",
-      { runIds },
-    );
-
-    for (const r of convexRows) {
-      if (!r.found) {
-        console.warn(`   ⚠ run ${r.runId} not found — skipping`);
-        continue;
-      }
-      if (r.status !== "completed") {
-        console.warn(
-          `   ⚠ run ${r.runId} (${r.modelId}) status=${r.status} — row may be blank`,
+  if (runIdsPath) {
+    const runIdsRaw = JSON.parse(readFileSync(runIdsPath, "utf-8")) as {
+      runIds: string[];
+    };
+    const runIds = runIdsRaw.runIds ?? [];
+    if (runIds.length > 0) {
+      console.log(`📡 Fetching ${runIds.length} runs from Convex...`);
+      const convexRows = convexRun<ConvexRunRow[]>(
+        "evaluationHelpers:exportAggregates",
+        { runIds },
+      );
+      for (const r of convexRows) {
+        if (!r.found) {
+          console.warn(`   ⚠ run ${r.runId} not found — skipping`);
+          continue;
+        }
+        if (r.status !== "completed") {
+          console.warn(
+            `   ⚠ run ${r.runId} (${r.modelId}) status=${r.status} — row may be blank`,
+          );
+        }
+        // Per-category breakdown for cloud rows would require exportRunDetail per run.
+        // Leave empty for now — eval/export-cloud-results.ts produces the full per-model report.
+        rows.push(
+          formatRow(
+            r.modelId ?? r.runId,
+            r.methodologyVersion,
+            r.aggregateMetrics,
+            undefined,
+          ),
         );
+        console.log(`   ✓ ${r.modelId}`);
       }
-      rows.push(formatRow(r.modelId ?? r.runId, r.aggregateMetrics));
-      console.log(`   ✓ ${r.modelId}`);
     }
-  } else {
-    console.log("(no run IDs in run-ids.json, skipping Convex fetch)");
   }
 
   const localFiles =
@@ -210,7 +252,15 @@ function main() {
     const report = JSON.parse(
       readFileSync(jsonFile, "utf-8"),
     ) as LocalEvalReport;
-    rows.push(formatRow(report.modelId, report.aggregateMetrics));
+    const perCat = categoryBreakdownFromLocal(report);
+    rows.push(
+      formatRow(
+        report.modelId,
+        report.methodologyVersion,
+        report.aggregateMetrics,
+        perCat,
+      ),
+    );
     console.log(`   ✓ ${report.modelId} (local, ${basename(jsonFile)})`);
   }
 
@@ -227,12 +277,13 @@ function main() {
   console.log(rows.join("\n"));
 }
 
-// Default to every *.json in eval/results/ except run-ids.json — generic for any future local model.
+// Top-level JSON files in eval/results/ (skip directories like legacy/).
 function defaultLocalFiles(resultsDir: string): string[] {
   try {
     return readdirSync(resultsDir)
-      .filter((f) => f.endsWith(".json") && f !== "run-ids.json")
-      .map((f) => join(resultsDir, f));
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => join(resultsDir, f))
+      .filter((p) => statSync(p).isFile());
   } catch {
     return [];
   }

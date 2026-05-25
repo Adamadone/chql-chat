@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "eval": "dotenvx run -f ../.env.local -- tsx run-local.ts",
+    "eval:sample": "dotenvx run -f ../.env.local -- tsx run-local.ts --set sample",
+    "eval:golden": "dotenvx run -f ../.env.local -- tsx run-local.ts --set golden",
     "merge": "tsx merge-results.ts",
     "aggregate": "tsx aggregate-summary.ts"
   },

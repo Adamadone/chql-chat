@@ -1,11 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Merges Convex-exported CSV + local JSON reports into a single CSV. See ./CONTEXT.md.
+ * Merges Convex-exported CSV + local JSON reports into a single per-row CSV. See ./CONTEXT.md.
  *
  * Usage:
- *   npx tsx merge-results.ts --convex results/convex-export.csv --local results/qwen3-4b-*.json
- *   npx tsx merge-results.ts --local results/qwen3-4b-*.json   # local only, no Convex CSV
- *   npx tsx merge-results.ts --convex results/convex-export.csv # Convex only, no local
+ *   npx tsx merge-results.ts --convex results/convex-export.csv --local results/local-foo.json
+ *   npx tsx merge-results.ts --local results/local-foo.json    # local only, no Convex CSV
+ *   npx tsx merge-results.ts --convex results/convex-export.csv  # Convex only, no local
  */
 
 import { readFileSync, writeFileSync } from "fs";
@@ -43,13 +43,19 @@ function parseArgs() {
 interface LocalEvalReport {
   modelId: string;
   results: Array<{
-    queryIndex: number;
-    userQuery: string;
-    expectedChql: string;
-    expectedKkeys: string[];
-    actualChql?: string;
-    attempt: number;
+    question: {
+      id: string;
+      category: string;
+      expectedBehavior: string;
+      query: string;
+      expectedChql: string | null;
+      expectedKkeys: string[] | null;
+    };
+    actualChql: string | null;
     success: boolean;
+    verdict: string;
+    reason: string;
+    usedTool: boolean;
     metrics: {
       responseTimeMs: number;
       inputTokens: number;
@@ -57,7 +63,6 @@ interface LocalEvalReport {
       totalTokens: number;
       chqlParses?: boolean;
       chqlEquivalent?: "equivalent" | "different" | "expected_empty" | "actual_error";
-      usedTool: boolean;
       kkeysCorrect?: boolean;
     };
   }>;
@@ -73,7 +78,7 @@ function csvEscape(value: string): string {
 }
 
 const CSV_HEADER =
-  "model,query,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
+  "model,question_id,category,expected_behavior,query,success,verdict,reason,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
@@ -106,9 +111,13 @@ function main() {
     for (const result of report.results) {
       const row = [
         csvEscape(report.modelId),
-        csvEscape(result.userQuery),
-        result.attempt,
+        csvEscape(result.question.id),
+        csvEscape(result.question.category),
+        csvEscape(result.question.expectedBehavior),
+        csvEscape(result.question.query),
         result.success,
+        csvEscape(result.verdict),
+        csvEscape(result.reason),
         result.metrics.responseTimeMs,
         result.metrics.inputTokens,
         result.metrics.outputTokens,
@@ -116,9 +125,9 @@ function main() {
         "", // cost_usd — N/A for self-hosted
         result.metrics.chqlParses ?? "",
         result.metrics.chqlEquivalent ?? "",
-        result.metrics.usedTool,
+        result.usedTool,
         result.metrics.kkeysCorrect ?? "",
-        csvEscape(result.expectedChql ?? ""),
+        csvEscape(result.question.expectedChql ?? ""),
         csvEscape(result.actualChql ?? ""),
       ].join(",");
 

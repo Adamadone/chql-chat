@@ -9,10 +9,8 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 // ─── Shared aggregate math ──────────────────────────────────────────────────
 
 // Used by both finalizeEvalRun (live runs) and recomputeRunAggregates (rejudge).
-// Rate/average metrics use attempt-1 rows only; cost sums every attempt.
+// One row per question (single attempt), so rates are computed straight over `results`.
 export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
-  const firstAttempts = results.filter((r) => r.attempt === 1);
-
   let successCount = 0;
   let toolUsageCount = 0;
   let chqlParsesCount = 0;
@@ -22,8 +20,9 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalTokensAll = 0;
+  let totalCost = 0;
 
-  for (const r of firstAttempts) {
+  for (const r of results) {
     if (r.success) successCount++;
     if (r.metrics.usedTool) toolUsageCount++;
     if (r.metrics.chqlParses) chqlParsesCount++;
@@ -33,12 +32,10 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
     totalInputTokens += r.metrics.inputTokens;
     totalOutputTokens += r.metrics.outputTokens;
     totalTokensAll += r.metrics.totalTokens;
+    totalCost += r.metrics.costUsd ?? 0;
   }
 
-  let totalCost = 0;
-  for (const r of results) totalCost += r.metrics.costUsd ?? 0;
-
-  const n = firstAttempts.length || 1;
+  const n = results.length || 1;
   return {
     aggregateMetrics: {
       successRate: successCount / n,
@@ -52,7 +49,7 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
       toolUsageRate: toolUsageCount / n,
     },
     kkeysCorrectCount,
-    firstAttemptCount: firstAttempts.length,
+    rowCount: results.length,
   };
 }
 
@@ -62,6 +59,7 @@ export const createEvalRun = internalMutation({
   args: {
     modelId: v.string(),
     totalQueries: v.number(),
+    methodologyVersion: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("evalRuns", {
@@ -69,6 +67,7 @@ export const createEvalRun = internalMutation({
       startedAt: Date.now(),
       status: "running",
       totalQueries: args.totalQueries,
+      methodologyVersion: args.methodologyVersion,
     });
   },
 });
@@ -116,7 +115,7 @@ export const finalizeEvalRun = internalMutation({
       .withIndex("by_run", (q) => q.eq("runId", args.runId))
       .collect();
 
-    const { aggregateMetrics, kkeysCorrectCount, firstAttemptCount } =
+    const { aggregateMetrics, kkeysCorrectCount, rowCount } =
       computeAggregateMetrics(results);
 
     await ctx.db.patch(args.runId, {
@@ -126,7 +125,7 @@ export const finalizeEvalRun = internalMutation({
     });
 
     console.log(
-      `[Eval] Finalized run ${args.runId}: kkeysCorrectCount=${kkeysCorrectCount}/${firstAttemptCount}, metrics=${JSON.stringify(aggregateMetrics)}`,
+      `[Eval] Finalized run ${args.runId}: kkeysCorrectCount=${kkeysCorrectCount}/${rowCount}, metrics=${JSON.stringify(aggregateMetrics)}`,
     );
   },
 });
@@ -136,6 +135,9 @@ export const insertEvalResult = internalMutation({
     runId: v.id("evalRuns"),
     queryIndex: v.number(),
     userQuery: v.string(),
+    questionId: v.optional(v.string()),
+    category: v.optional(v.string()),
+    expectedBehavior: v.optional(v.string()),
     expectedChql: v.optional(v.string()),
     expectedKkeys: v.optional(v.array(v.string())),
     actualChql: v.optional(v.string()),
@@ -159,6 +161,8 @@ export const insertEvalResult = internalMutation({
           v.literal("actual_error"),
         ),
       ),
+      verdict: v.optional(v.string()),
+      reason: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
@@ -200,6 +204,8 @@ export const patchEvalResultFields = internalMutation({
           v.literal("actual_error"),
         ),
       ),
+      verdict: v.optional(v.string()),
+      reason: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
@@ -231,7 +237,7 @@ export const exportResults = query({
   },
   handler: async (ctx, args) => {
     const header =
-      "model,query,attempt,success,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
+      "model,question_id,category,expected_behavior,query,success,verdict,reason,response_time_ms,input_tokens,output_tokens,total_tokens,cost_usd,chql_parses,chql_equivalent,used_tool,kkeys_correct,expected_chql,actual_chql";
 
     const rows: string[] = [header];
 
@@ -247,9 +253,13 @@ export const exportResults = query({
       for (const result of results) {
         const csvRow = [
           csvEscape(run.modelId),
+          csvEscape(result.questionId ?? ""),
+          csvEscape(result.category ?? ""),
+          csvEscape(result.expectedBehavior ?? ""),
           csvEscape(result.userQuery),
-          result.attempt,
           result.success,
+          csvEscape(result.metrics.verdict ?? ""),
+          csvEscape(result.metrics.reason ?? ""),
           result.metrics.responseTimeMs,
           result.metrics.inputTokens,
           result.metrics.outputTokens,
@@ -292,10 +302,25 @@ export const exportAggregates = query({
         startedAt: run.startedAt,
         completedAt: run.completedAt,
         totalQueries: run.totalQueries,
+        methodologyVersion: run.methodologyVersion,
         aggregateMetrics: run.aggregateMetrics,
       });
     }
     return out;
+  },
+});
+
+/** Full row dump for a run — used by eval/export-cloud-results.ts to emit per-model Markdown. */
+export const exportRunDetail = query({
+  args: { runId: v.id("evalRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) return null;
+    const results = await ctx.db
+      .query("evalResults")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+    return { run, results };
   },
 });
 

@@ -20,6 +20,7 @@ Shared package consumed by `convex/`, `apps/mcp-server/`, `apps/web/`, and `eval
 - `parse.ts` — `parseChql` wraps the ANTLR-generated lexer/parser and returns `{ ok: true } | { ok: false; error }`.
 - `kkeys.ts` — `extractKkeys` / `kkeysMatch` for eval golden-set comparison.
 - `sanitize.ts` — `stripToolTags` removes hallucinated `<tool_call>`/`<tool_response>`/`<function_call>`/`<function_response>` tags from LLM text.
+- `grading.ts` — `gradeResult(question, output)` is the single source of truth for the eval success criterion. Defines the `GoldenQuestion` schema (category, expectedBehavior) and dispatches predicates for `equivalence` (row-set match), `refusal` / `clarification` (no tool call), and `no_injection_compliance` (refused or matched legitimate intent). Imported by both `eval/run-local.ts` and `convex/evaluation.ts`.
 - `index.ts` — re-export barrel.
 
 ## Gotchas

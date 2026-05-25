@@ -25,3 +25,13 @@ export {
   type PartSummary,
   type MeasurementEventSample,
 } from "./envelope.js";
+export {
+  gradeResult,
+  type QuestionCategory,
+  type ExpectedBehavior,
+  type GoldenQuestion,
+  type ChqlEquivalent,
+  type Verdict,
+  type ModelOutput,
+  type GradeResult,
+} from "./grading.js";

@@ -1,0 +1,351 @@
+{
+  "modelId": "local/qwen3-4b-qwen3.6-plus-reasoning-distilled",
+  "vllmUrl": "http://localhost:1234/v1",
+  "startedAt": "2026-04-23T17:40:21.833Z",
+  "completedAt": "2026-04-23T18:02:38.248Z",
+  "totalQueries": 13,
+  "aggregateMetrics": {
+    "successRate": 0.7333333333333333,
+    "avgResponseTimeMs": 59406.6,
+    "avgInputTokens": 17280.866666666665,
+    "avgOutputTokens": 925.1333333333333,
+    "avgTotalTokens": 18206,
+    "chqlParsesRate": 0.9333333333333333,
+    "equivalenceRate": 0.7333333333333333,
+    "toolUsageRate": 0.9333333333333333
+  },
+  "results": [
+    {
+      "queryIndex": 0,
+      "userQuery": "Find all measurements for piece with ID 9891978",
+      "expectedChql": "K0014 = '9891978'",
+      "expectedKkeys": [
+        "K0014"
+      ],
+      "actualChql": "K0014 = '9891978'",
+      "modelResponse": "Here are all the measurement records for piece `9891978` (ID: K0014):\n\n**10 measurements found**, covering these characteristics:\n- Filling Value (`time-stroke`) - 25 values over time\n- Water Temperature (`water_temperature`) - 1 value at 81.6°C\n- Capping Start Time (`capping_start-time`) - 1 value (1.11s)\n- Capping Start Force (`capping_start-force`) - 1 value (-0.07N)\n- Local Maximum Force (`local_maximum-force`) - 1 value (13.4N)\n- Local Maximum Time (`local_maximum-time`) - 1 value (1.57s)\n- Local Minimum Force (`local_minimum-force`) - 1 value (11.9N)\n- Local Minimum Time (`local_minimum-time`) - 1 value (1.67s)\n\nAll measurements were taken during operation `OP40` from the batch `68221-IPA`.\n\nWould you like to:\n1. Filter these results by time range?\n2. Focus on specific characteristics only?\n3. Check for any alarms or quality violations in these measurements?",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 40231,
+        "inputTokens": 18294,
+        "outputTokens": 832,
+        "totalTokens": 19126,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 1,
+      "userQuery": "Show me filling_value measurements from operation Bottle Wash",
+      "expectedChql": "K2002 = 'filling_value' AND K4063 = 'Bottle Wash'",
+      "expectedKkeys": [
+        "K2002",
+        "K4063"
+      ],
+      "actualChql": "K2002 = 'filling_value' AND K4063 = 'Bottle Wash'",
+      "modelResponse": "Your query `K2002 = 'filling_value' AND K4063 = 'Bottle Wash'` returned no measurement results in the database.\n\nWould you like to:\n1. Check if \"Bottle Wash\" is the correct operation name (sometimes names vary slightly)\n2. Add a time range (`K0004 >= ... AND K0004 < ...`)\n3. Include another characteristic or part identifier\n4. Verify if the measurement exists in a specific batch, product type, or shift\n\nLet me know how you'd like to refine this search!",
+      "attempt": 1,
+      "success": false,
+      "metrics": {
+        "responseTimeMs": 20480,
+        "inputTokens": 3888,
+        "outputTokens": 548,
+        "totalTokens": 4436,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "expected_empty"
+      }
+    },
+    {
+      "queryIndex": 1,
+      "userQuery": "Show me filling_value measurements from operation Bottle Wash",
+      "expectedChql": "K2002 = 'filling_value' AND K4063 = 'Bottle Wash'",
+      "expectedKkeys": [
+        "K2002",
+        "K4063"
+      ],
+      "actualChql": "K2002 = 'filling_value' AND K4063 = 'Bottle Wash'",
+      "modelResponse": "Your query `K2002 = 'filling_value' AND K4063 = 'Bottle Wash'` returned no measurement results from the chy.stat database. This means there are currently no recorded measurements of \"filling_value\" characteristics associated with operations named \"Bottle Wash\".\n\nWould you like to:\n1. Search for a different characteristic or operation name?\n2. Adjust the time range (today, last week, specific date)?\n3. Include other criteria like piece ID, batch number, or alarm status?\n\nLet me know how you'd like to refine this query!",
+      "attempt": 2,
+      "success": false,
+      "metrics": {
+        "responseTimeMs": 14807,
+        "inputTokens": 3895,
+        "outputTokens": 339,
+        "totalTokens": 4234,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "expected_empty"
+      }
+    },
+    {
+      "queryIndex": 2,
+      "userQuery": "Find measurements of part IPA CHYSTAT from operations Bottle Wash and Final Inspection",
+      "expectedChql": "K1002 = 'IPA CHYSTAT' AND (K4063 = 'Bottle Wash' OR K4063 = 'Final Inspection')",
+      "expectedKkeys": [
+        "K1002",
+        "K4063"
+      ],
+      "actualChql": "K1002 = 'IPA CHYSTAT' AND (K4063 = 'Bottle Wash' OR K4063 = 'Final Inspection')",
+      "modelResponse": "✅ Query executed successfully  \n🔍 Results for part \"IPA CHYSTAT\" from operations \"Bottle Wash\" and \"Final Inspection\"\n\n📊 Summary:  \n- **Total measurements**: 64 readings across 5 characteristics\n- **Characteristics measured**:  \n  • Water Consumption (2.0–2.15 l)  \n  • Label Position X & Y (-5.0 to +5.0 mm)  \n  • AI Letters Check (all passed ✅)  \n  • Wash Result (all passed ✅)  \n  • Water Temperature (83.7°C–84.6°C)\n\n⚠️ No alarms were triggered in these measurements\n\nWould you like me to filter for specific characteristics, calculate statistics, or generate a report?",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 36393,
+        "inputTokens": 22221,
+        "outputTokens": 838,
+        "totalTokens": 23059,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 3,
+      "userQuery": "Give me measurements of characteristic filling_value that are out of tolerance",
+      "expectedChql": "K2002 = 'filling_value' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+      "expectedKkeys": [
+        "K2002"
+      ],
+      "actualChql": "K2002 = 'filling_value' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+      "modelResponse": "I found 52 measurements of characteristic `filling_value` that triggered alarms indicating they are out of tolerance.\n\nAll measured values fall below the specification limits, ranging from 0.48 to 0.506 l.\nThe alarm system records both \"belowSpecification\" and \"belowAcceptance\" conditions for these measurements.\n\nHere's a sample overview:\n- Most pieces show consistent under-filling\n- Measurements cluster around 0.482-0.485 l, with some trending slightly higher toward the specification limit\n- Timestamps span multiple hours within the current shift\n\nWould you like me to refine this query by:\n- Specifying a particular part or batch name using `K1002` or `K0053`\n- Checking only measurements above/below a specific threshold value (`K0001 > X`)\n- Narrowing to measurements from a specific time window\n- Filtering for the exact type of alarm (though all show \"belowSpecification\" and/or \"belowAcceptance\")",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 43356,
+        "inputTokens": 23112,
+        "outputTokens": 1194,
+        "totalTokens": 24306,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 4,
+      "userQuery": "Find all measurements without any alarms",
+      "expectedChql": "HAS NO ALARM",
+      "expectedKkeys": [],
+      "actualChql": "HAS NO ALARM",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 55856,
+        "inputTokens": 18289,
+        "outputTokens": 1190,
+        "totalTokens": 19479,
+        "usedTool": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 5,
+      "userQuery": "Show measurements from operation code OP10",
+      "expectedChql": "K4062 = 'OP10'",
+      "expectedKkeys": [
+        "K4062"
+      ],
+      "actualChql": "K4062 = 'OP10'",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 34079,
+        "inputTokens": 21457,
+        "outputTokens": 473,
+        "totalTokens": 21930,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 6,
+      "userQuery": "Find values of characteristic water_consumption from production batch 68221-IPA that are less than 80.5",
+      "expectedChql": "K0053 = '68221-IPA' AND K2002 = 'water_consumption' AND K0001 < 80.5",
+      "expectedKkeys": [
+        "K0053",
+        "K2002",
+        "K0001"
+      ],
+      "actualChql": "K2002 = 'water_consumption' AND K0053 = '68221-IPA' AND K0001 < 80.5",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 62457,
+        "inputTokens": 18300,
+        "outputTokens": 701,
+        "totalTokens": 19001,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 7,
+      "userQuery": "Show all measurements for part code 3",
+      "expectedChql": "K1001 = '3'",
+      "expectedKkeys": [
+        "K1001"
+      ],
+      "actualChql": "K1001 = '3'",
+      "modelResponse": "Here are all measurements found for part code \"3\" (IPA CHYSTAT):\n\n**Part Identification:**\n- Code: 3\n- Description: IPA CHYSTAT\n- Manufacturer: DIRIBET\n- Product Type: IPA\n- Catalog ID: 3\n\n**Key Measurement Characteristics & Findings:**\n\n1. **Filling Value (0.496 l)**\n   - Target: 0.495 L\n   - Specification limits: 0.485 to 0.505 L\n   - Acceptance limits: 0.487 to 0.503 L\n\n2. **Chilling (9.96°C)**\n   - Specification limits: 8.0 to 10.0°C\n   - Acceptance limit: 9.8°C\n   - Status: `aboveAcceptance` alarm detected\n\n3. **Input Quality**\n   - Current value: 8.673 (out of normal range)\n   - Specification range: 0-5\n   - Status: `aboveSpecification` alarm detected\n   - Ordinal rating: 4/5\n\n4. **Water Temperature (83.71°C)**\n   - Target: 82.5°C\n   - Upper limit: 85°C\n   - Process parameter\n\n5. **Bottle Weight (728.4 g)**\n   - Specification limits: 705.6 to 757.05 g\n   - Acceptance limits: 710.75 to 751.91 g\n\n6. **Capping Start Time & Force**\n   - All values reported at 1.11 seconds and -0.73 N within specification\n   - No alarms present\n\n**Special Flags:**\n- Visual Bottle State: Pass (1)\n- Cleanliness: Pass (1), with `attribute` flag indicating visual inspection\n- Input Temperature, Speed, Line Speed: All within tolerance ranges\n\nAll measurements were timestamped between 2026-03-22T00:32:54+01:00 and 2026-03-22T00:33:36.6+01:00. No alarm conditions are present for most characteristics, except the two noted above.\n\nWould you like to focus on any specific characteristic or time period?",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 62453,
+        "inputTokens": 18290,
+        "outputTokens": 913,
+        "totalTokens": 19203,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 8,
+      "userQuery": "Find measurements where the measured value is greater than 0.5",
+      "expectedChql": "K0001 > 0.5",
+      "expectedKkeys": [
+        "K0001"
+      ],
+      "actualChql": "K0001 > 0.5",
+      "modelResponse": "The query `K0001 > 0.5` returned 62 measured values across multiple product specifications from the current production shift.\n\nAll values in this result set exceed the threshold of 0.5, as typical measurement ranges for industrial parameters like dimensions, force readings, temperature, and quality indicators commonly start at or above 1.0.\n\nThe most frequently measured characteristics include:\n- `bottle_diameter` (70.631–70.666 mm)\n- `bottle_height` (200.16–200.355 mm)\n- `air_pressure` (4.976–5.112 bar)\n- `water_temperature` (81.241–81.368 °C)\n- `local_maximum-force` (11.85–13.172 N)\n\nIf you'd like to refine the search for specific characteristics, alarms, time ranges, or additional filtering criteria, please specify!",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 62272,
+        "inputTokens": 26902,
+        "outputTokens": 1532,
+        "totalTokens": 28434,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 9,
+      "userQuery": "Show me all measurements for parts IPA CHYSTAT or NEIPA YARVYN",
+      "expectedChql": "K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')",
+      "expectedKkeys": [
+        "K1002"
+      ],
+      "actualChql": "K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 74588,
+        "inputTokens": 18295,
+        "outputTokens": 491,
+        "totalTokens": 18786,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 10,
+      "userQuery": "Find measurements of filling_value where the value is between 0.49 and 0.50",
+      "expectedChql": "K2002 = 'filling_value' AND K0001 >= 0.49 AND K0001 <= 0.50",
+      "expectedKkeys": [
+        "K2002",
+        "K0001"
+      ],
+      "actualChql": "K2002 = 'filling_value' AND K0001 >= 0.49 AND K0001 <= 0.50",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 29025,
+        "inputTokens": 21083,
+        "outputTokens": 471,
+        "totalTokens": 21554,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    },
+    {
+      "queryIndex": 11,
+      "userQuery": "Show measurements from operation Bottle Wash with operation code OP10 that have alarms",
+      "expectedChql": "K4062 = 'OP10' AND K4063 = 'Bottle Wash' AND NOT HAS NO ALARM",
+      "expectedKkeys": [
+        "K4063",
+        "K4062"
+      ],
+      "actualChql": "K4063 = 'Bottle Wash' AND K4062 = 'OP10' AND HAS ALARM 'valueOutsideSpecificationLimits'",
+      "modelResponse": "I found 5 production runs matching your criteria (Bottle Wash operation with OP10 code and out-of-tolerance alarms):\n\n**Alarm Conditions Detected:**\n- `belowSpecification` (under target)\n- `aboveSpecification` (over target)\n\n**Example Measurement:**  \nDuring Bottle Wash operation on 2026-03-22T10:57:18+01:00, a water temperature measurement (`K2002 = \"water_temperature\"`) showed 85.137°C (alarm type: `aboveSpecification`). The target specification limit was set at 85°C.\n\nThe system detects these alarm conditions through the `KX001` field which contains an array of violation codes. Each value in this array corresponds to a specific type of measurement out-of-tolerance condition.\n\nWould you like me to:\n- Show more detailed statistics about the alarms?\n- Filter results by specific product types or piece identifiers?\n- Show measurements from other operations with similar alarm patterns?",
+      "attempt": 1,
+      "success": false,
+      "metrics": {
+        "responseTimeMs": 49785,
+        "inputTokens": 23076,
+        "outputTokens": 718,
+        "totalTokens": 23794,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "different"
+      }
+    },
+    {
+      "queryIndex": 11,
+      "userQuery": "Show measurements from operation Bottle Wash with operation code OP10 that have alarms",
+      "expectedChql": "K4062 = 'OP10' AND K4063 = 'Bottle Wash' AND NOT HAS NO ALARM",
+      "expectedKkeys": [
+        "K4063",
+        "K4062"
+      ],
+      "modelResponse": "The CHQL grammar requires a specific alarm name as a string argument for the `HAS ALARM` condition (e.g., `'valueOutsideSpecificationLimits'`). Since you didn't specify which alarm type you want, I can only provide a query that matches the operations criteria.\n\nHere's how to filter measurements from operation code OP10 named \"Bottle Wash\":\n\n```\nK4062 = 'OP10' AND K4063 = 'Bottle Wash'\n```\n\nTo include measurements with alarms, you need to add `AND HAS ALARM '<alarm_name>'` where `<alarm_name>` is the specific alarm string. Could you please specify which alarm type you'd like me to match against (e.g., `'valueOutsideSpecificationLimits'`, `'processParameterNotInSpec'`)?",
+      "attempt": 2,
+      "success": false,
+      "metrics": {
+        "responseTimeMs": 28987,
+        "inputTokens": 3820,
+        "outputTokens": 2718,
+        "totalTokens": 6538,
+        "usedTool": false,
+        "chqlEquivalent": "actual_error"
+      }
+    },
+    {
+      "queryIndex": 12,
+      "userQuery": "Find all measurements except those for characteristic filling_value",
+      "expectedChql": "NOT K2002 = 'filling_value'",
+      "expectedKkeys": [
+        "K2002"
+      ],
+      "actualChql": "NOT (K2002 = 'filling_value')",
+      "modelResponse": "",
+      "attempt": 1,
+      "success": true,
+      "metrics": {
+        "responseTimeMs": 276330,
+        "inputTokens": 18291,
+        "outputTokens": 919,
+        "totalTokens": 19210,
+        "usedTool": true,
+        "kkeysCorrect": true,
+        "chqlParses": true,
+        "chqlEquivalent": "equivalent"
+      }
+    }
+  ]
+}

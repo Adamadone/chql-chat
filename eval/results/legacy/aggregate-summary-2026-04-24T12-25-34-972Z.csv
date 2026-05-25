@@ -1,0 +1,7 @@
+model,success_rate,chql_parse_rate,chql_equivalence_rate,tool_usage_rate,avg_response_time_ms,avg_input_tokens,avg_output_tokens,avg_total_tokens,total_cost_usd
+gpt-5.3-chat-latest,1,1,1,1,22987.92,29755.31,184.92,29940.23,0.710589
+gpt-5.4,0.9231,0.9231,0.9231,0.9231,21126,24122.54,283.08,24405.62,1.048175
+claude-haiku-4-5,1,1,1,1,28211.15,35114.15,513.77,35627.92,0.416697
+claude-sonnet-4-6,0.9231,1,0.9231,1,39641.23,30303.15,1102.15,31405.31,1.617819
+claude-opus-4-7,1,1,1,1,39031.54,38661,1067.77,39728.77,2.85999
+local/qwen3-4b-qwen3.6-plus-reasoning-distilled,0.7333,0.9333,0.7333,0.9333,59406.6,17280.87,925.13,18206,

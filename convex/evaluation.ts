@@ -20,22 +20,14 @@ import {
   hashMCPResponseText,
   extractKkeys,
   kkeysMatch,
+  gradeResult,
+  type GoldenQuestion,
+  type ModelOutput,
+  type ChqlEquivalent,
 } from "@chql-chat/chql-core";
 import goldenSet from "../eval/golden-set.json";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface GoldenQuery {
-  query: string;
-  expectedChql: string;
-  expectedKkeys: string[];
-}
-
-type ChqlEquivalent =
-  | "equivalent"
-  | "different"
-  | "expected_empty"
-  | "actual_error";
+const METHODOLOGY_VERSION = "v2";
 
 // Larger than production so equivalence reflects the full result set;
 // >1000-row queries get truncated — acceptable for the current golden set.
@@ -74,20 +66,20 @@ interface SingleQueryOutcome {
   outputTokens: number;
   totalTokens: number;
   responseTimeMs: number;
-  chqlEquivalent: ChqlEquivalent;
+  chqlEquivalent?: ChqlEquivalent;
 }
 
 // Fetches actual + expected row-set hashes back-to-back (~100ms apart) so chy.stat data
 // drift mid-run can't invalidate the comparison.
 async function runSingleQuery(
-  queryEntry: GoldenQuery,
+  question: GoldenQuestion,
   modelId: string,
 ): Promise<SingleQueryOutcome> {
   const { client: mcpClient, tools } = await connectAndDiscoverTools();
 
   try {
     const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
-    const chatHistory = [{ role: "user" as const, content: queryEntry.query }];
+    const chatHistory = [{ role: "user" as const, content: question.query }];
 
     const startTime = Date.now();
     const result = await runLLMWithTools(
@@ -102,7 +94,7 @@ async function runSingleQuery(
     const chqlEquivalent = await computeEquivalence(
       mcpClient,
       actualChql,
-      queryEntry.expectedChql,
+      question.expectedChql,
     );
 
     return {
@@ -122,14 +114,14 @@ async function runSingleQuery(
   }
 }
 
-// Returns `actual_error` if actualChql doesn't produce a clean response;
-// `expected_empty` if expectedChql returns zero rows (can't meaningfully compare).
+// Returns undefined when there is no actualChql to judge or no reference to compare against.
 async function computeEquivalence(
   mcpClient: Awaited<ReturnType<typeof connectAndDiscoverTools>>["client"],
   actualChql: string | undefined,
-  expectedChql: string,
-): Promise<ChqlEquivalent> {
-  if (!mcpClient || !actualChql) return "actual_error";
+  expectedChql: string | null,
+): Promise<ChqlEquivalent | undefined> {
+  if (!mcpClient || !actualChql) return undefined;
+  if (expectedChql === null) return undefined;
 
   let actualText: { text: string; isError: boolean };
   try {
@@ -178,37 +170,38 @@ async function computeEquivalence(
 
 // ─── Exported actions ───────────────────────────────────────────────────────
 
-// One query attempt per scheduled action (own 5-min budget). Decides what to schedule next:
-// retry on fail (attempt 2) → next query (attempt 1) → finalizeEvalRun.
-// Errors are recorded as failure rows; re-throwing would orphan the run.
+// One question per scheduled action (own 5-min budget). Single attempt — no retries.
+// Schedules the next question or finalizeEvalRun. Errors are recorded as failure rows;
+// re-throwing would orphan the run.
 export const runQueryAction = internalAction({
   args: {
     runId: v.id("evalRuns"),
     modelId: v.string(),
     queryIndex: v.number(),
-    attempt: v.number(),
   },
   handler: async (ctx, args): Promise<void> => {
-    const queries = goldenSet as GoldenQuery[];
-    const queryEntry = queries[args.queryIndex];
-    const totalQueries = queries.length;
+    const questions = goldenSet as GoldenQuestion[];
+    const question = questions[args.queryIndex];
+    const totalQueries = questions.length;
 
     console.log(
-      `[Eval] Query ${args.queryIndex + 1}/${totalQueries} (attempt ${args.attempt}) for ${args.modelId}: "${queryEntry.query}"`,
+      `[Eval] Query ${args.queryIndex + 1}/${totalQueries} for ${args.modelId}: "${question.query}"`,
     );
 
-    let success = false;
-
     try {
-      const result = await runSingleQuery(queryEntry, args.modelId);
+      const result = await runSingleQuery(question, args.modelId);
 
       const usedTool = result.usedTool;
-      const actualChql = result.dslQuery;
+      const actualChql = result.dslQuery ?? null;
 
       let kkeysCorrect: boolean | undefined;
-      if (actualChql && queryEntry.expectedKkeys.length > 0) {
+      if (
+        actualChql &&
+        question.expectedKkeys &&
+        question.expectedKkeys.length > 0
+      ) {
         const actualKkeys = extractKkeys(actualChql);
-        kkeysCorrect = kkeysMatch(actualKkeys, queryEntry.expectedKkeys);
+        kkeysCorrect = kkeysMatch(actualKkeys, question.expectedKkeys);
       }
 
       const chqlParses = actualChql ? parseChql(actualChql).ok : undefined;
@@ -219,18 +212,26 @@ export const runQueryAction = internalAction({
         result.outputTokens,
       );
 
-      success = result.chqlEquivalent === "equivalent";
+      const modelOutput: ModelOutput = {
+        actualChql,
+        usedTool,
+        chqlEquivalent: result.chqlEquivalent,
+      };
+      const graded = gradeResult(question, modelOutput);
 
       await ctx.runMutation(internal.evaluationHelpers.insertEvalResult, {
         runId: args.runId,
         queryIndex: args.queryIndex,
-        userQuery: queryEntry.query,
-        expectedChql: queryEntry.expectedChql,
-        expectedKkeys: queryEntry.expectedKkeys,
-        actualChql,
-        modelResponse: result.response.slice(0, 2000),
-        attempt: args.attempt,
-        success,
+        userQuery: question.query,
+        questionId: question.id,
+        category: question.category,
+        expectedBehavior: question.expectedBehavior,
+        expectedChql: question.expectedChql ?? undefined,
+        expectedKkeys: question.expectedKkeys ?? undefined,
+        actualChql: actualChql ?? undefined,
+        modelResponse: result.response.slice(0, 4000),
+        attempt: 1,
+        success: graded.success,
         metrics: {
           responseTimeMs: result.responseTimeMs,
           inputTokens: result.inputTokens,
@@ -241,29 +242,41 @@ export const runQueryAction = internalAction({
           kkeysCorrect,
           chqlParses,
           chqlEquivalent: result.chqlEquivalent,
+          verdict: graded.verdict,
+          reason: graded.reason,
         },
       });
 
-      if (!success) {
+      if (!graded.success) {
         console.log(
-          `[Eval] Query ${args.queryIndex + 1} attempt ${args.attempt} failed, ${args.attempt < 2 ? "retrying..." : "moving on."}`,
+          `[Eval] Query ${args.queryIndex + 1} failed: ${graded.verdict} — ${graded.reason}`,
         );
       }
     } catch (error) {
       console.error(
-        `[Eval] Query ${args.queryIndex + 1} attempt ${args.attempt} threw error:`,
+        `[Eval] Query ${args.queryIndex + 1} threw error:`,
         error,
       );
 
       try {
+        const modelOutput: ModelOutput = {
+          actualChql: null,
+          usedTool: false,
+          chqlEquivalent: "actual_error",
+        };
+        const graded = gradeResult(question, modelOutput);
+
         await ctx.runMutation(internal.evaluationHelpers.insertEvalResult, {
           runId: args.runId,
           queryIndex: args.queryIndex,
-          userQuery: queryEntry.query,
-          expectedChql: queryEntry.expectedChql,
-          expectedKkeys: queryEntry.expectedKkeys,
-          attempt: args.attempt,
-          success: false,
+          userQuery: question.query,
+          questionId: question.id,
+          category: question.category,
+          expectedBehavior: question.expectedBehavior,
+          expectedChql: question.expectedChql ?? undefined,
+          expectedKkeys: question.expectedKkeys ?? undefined,
+          attempt: 1,
+          success: graded.success,
           metrics: {
             responseTimeMs: 0,
             inputTokens: 0,
@@ -271,30 +284,24 @@ export const runQueryAction = internalAction({
             totalTokens: 0,
             usedTool: false,
             chqlEquivalent: "actual_error",
+            verdict: "actual_error",
+            reason: "runtime error during generation",
           },
         });
       } catch (insertError) {
         console.error(
-          `[Eval] Failed to insert failure row for query ${args.queryIndex + 1} attempt ${args.attempt}:`,
+          `[Eval] Failed to insert failure row for query ${args.queryIndex + 1}:`,
           insertError,
         );
       }
     }
 
     const nextQueryIndex = args.queryIndex + 1;
-    if (!success && args.attempt === 1) {
-      await ctx.scheduler.runAfter(0, internal.evaluation.runQueryAction, {
-        runId: args.runId,
-        modelId: args.modelId,
-        queryIndex: args.queryIndex,
-        attempt: 2,
-      });
-    } else if (nextQueryIndex < totalQueries) {
+    if (nextQueryIndex < totalQueries) {
       await ctx.scheduler.runAfter(0, internal.evaluation.runQueryAction, {
         runId: args.runId,
         modelId: args.modelId,
         queryIndex: nextQueryIndex,
-        attempt: 1,
       });
     } else {
       await ctx.runMutation(internal.evaluationHelpers.finalizeEvalRun, {
@@ -311,25 +318,25 @@ export const startEval = action({
     modelId: v.string(),
   },
   handler: async (ctx, args): Promise<{ runId: Id<"evalRuns"> }> => {
-    const queries = goldenSet as GoldenQuery[];
+    const questions = goldenSet as GoldenQuestion[];
 
     const runId: Id<"evalRuns"> = await ctx.runMutation(
       internal.evaluationHelpers.createEvalRun,
       {
         modelId: args.modelId,
-        totalQueries: queries.length,
+        totalQueries: questions.length,
+        methodologyVersion: METHODOLOGY_VERSION,
       },
     );
 
     console.log(
-      `[Eval] Starting eval run for model ${args.modelId} with ${queries.length} queries (runId=${runId})`,
+      `[Eval] Starting eval run for model ${args.modelId} with ${questions.length} questions (runId=${runId}, methodology=${METHODOLOGY_VERSION})`,
     );
 
     await ctx.scheduler.runAfter(0, internal.evaluation.runQueryAction, {
       runId,
       modelId: args.modelId,
       queryIndex: 0,
-      attempt: 1,
     });
 
     return { runId };
@@ -337,9 +344,9 @@ export const startEval = action({
 });
 
 // Re-judges historical rows against the current golden-set using only stored CHQL strings.
-// Handles two cases: (1) corrected golden-set references → updates row + re-derives kkeysCorrect;
+// Handles two cases: (1) corrected golden-set references → updates row + re-derives verdict;
 // (2) identical-CHQL false-failures (e.g. expected_empty when actual==expected) → upgrades to equivalent.
-// Rows with textually-different CHQLs keep their stored verdict (judging those needs MCP).
+// Rows with textually-different CHQLs keep their stored chqlEquivalent (judging those needs MCP).
 // Recomputes aggregateMetrics; preserves completedAt.
 export const rejudgeRun = action({
   args: {
@@ -354,16 +361,10 @@ export const rejudgeRun = action({
     rowsVerdictChanged: number;
     aggregateMetrics: unknown;
   }> => {
-    const queries = goldenSet as GoldenQuery[];
-    const goldenByQuery = new Map<
-      string,
-      { expectedChql: string; expectedKkeys: string[] }
-    >();
-    for (const q of queries) {
-      goldenByQuery.set(q.query, {
-        expectedChql: q.expectedChql,
-        expectedKkeys: q.expectedKkeys,
-      });
+    const questions = goldenSet as GoldenQuestion[];
+    const goldenByQuery = new Map<string, GoldenQuestion>();
+    for (const q of questions) {
+      goldenByQuery.set(q.query, q);
     }
 
     const results = await ctx.runQuery(
@@ -380,49 +381,61 @@ export const rejudgeRun = action({
 
     for (const row of results) {
       const golden = goldenByQuery.get(row.userQuery);
-      // Fall back to stored reference when the query is no longer in the golden set.
-      const currentExpectedChql =
-        golden?.expectedChql ?? row.expectedChql ?? "";
-      const currentExpectedKkeys =
-        golden?.expectedKkeys ?? row.expectedKkeys ?? [];
+      // Fall back to a constructed question when no longer in golden set.
+      const question: GoldenQuestion = golden ?? {
+        id: row.questionId ?? `legacy-${row.queryIndex}`,
+        category: (row.category as GoldenQuestion["category"]) ?? "simple_single",
+        expectedBehavior:
+          (row.expectedBehavior as GoldenQuestion["expectedBehavior"]) ??
+          "equivalence",
+        query: row.userQuery,
+        expectedChql: row.expectedChql ?? null,
+        expectedKkeys: row.expectedKkeys ?? null,
+      };
 
       const referenceChanged =
         golden !== undefined &&
-        (row.expectedChql !== currentExpectedChql ||
-          !kkeysSetsEqual(row.expectedKkeys ?? [], currentExpectedKkeys));
+        (row.expectedChql !== (question.expectedChql ?? undefined) ||
+          !kkeysSetsEqual(
+            row.expectedKkeys ?? [],
+            question.expectedKkeys ?? [],
+          ));
 
-      const actualChql = row.actualChql;
+      const actualChql = row.actualChql ?? null;
 
-      let newChqlEquivalent: ChqlEquivalent | undefined =
-        row.metrics.chqlEquivalent;
+      let newChqlEquivalent = row.metrics.chqlEquivalent;
 
       if (!actualChql) {
-        newChqlEquivalent = "actual_error";
+        newChqlEquivalent = undefined;
       } else if (
-        currentExpectedChql &&
-        normalizeChql(actualChql) === normalizeChql(currentExpectedChql)
+        question.expectedChql &&
+        normalizeChql(actualChql) === normalizeChql(question.expectedChql)
       ) {
         // Identical strings ⇒ identical row sets ⇒ equivalent, regardless of stored verdict.
         newChqlEquivalent = "equivalent";
       } else if (referenceChanged) {
-        // Text differs against a new reference — can't judge without executing; clear to flag.
+        // Text differs against a new reference — can't judge without executing.
         newChqlEquivalent = undefined;
       }
-      // Else: reference unchanged + strings differ ⇒ keep stored verdict.
 
-      const newSuccess = newChqlEquivalent === "equivalent";
+      const modelOutput: ModelOutput = {
+        actualChql,
+        usedTool: row.metrics.usedTool,
+        chqlEquivalent: newChqlEquivalent,
+      };
+      const graded = gradeResult(question, modelOutput);
 
       let newKkeysCorrect: boolean | undefined = row.metrics.kkeysCorrect;
-      if (actualChql && currentExpectedKkeys.length > 0) {
+      if (actualChql && (question.expectedKkeys ?? []).length > 0) {
         const actualKkeys = extractKkeys(actualChql);
-        newKkeysCorrect = kkeysMatch(actualKkeys, currentExpectedKkeys);
-      } else if (currentExpectedKkeys.length === 0) {
+        newKkeysCorrect = kkeysMatch(actualKkeys, question.expectedKkeys ?? []);
+      } else if ((question.expectedKkeys ?? []).length === 0) {
         newKkeysCorrect = undefined;
       }
 
       const verdictChanged =
         row.metrics.chqlEquivalent !== newChqlEquivalent ||
-        row.success !== newSuccess;
+        row.success !== graded.success;
 
       if (!referenceChanged && !verdictChanged) continue;
 
@@ -433,13 +446,15 @@ export const rejudgeRun = action({
         internal.evaluationHelpers.patchEvalResultFields,
         {
           resultId: row._id,
-          expectedChql: currentExpectedChql,
-          expectedKkeys: currentExpectedKkeys,
-          success: newSuccess,
+          expectedChql: question.expectedChql ?? undefined,
+          expectedKkeys: question.expectedKkeys ?? undefined,
+          success: graded.success,
           metrics: {
             ...row.metrics,
             kkeysCorrect: newKkeysCorrect,
             chqlEquivalent: newChqlEquivalent,
+            verdict: graded.verdict,
+            reason: graded.reason,
           },
         },
       );
