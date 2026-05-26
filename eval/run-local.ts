@@ -144,6 +144,18 @@ interface EvalReport {
 
 const EVAL_PAGE_SIZE = 1000;
 const SEARCH_TOOL_NAME = "search_measurements";
+// SDK default is 60s; chy.stat can exceed that on broad pageSize=1000 calls.
+const MCP_CALL_TIMEOUT_MS = 180_000;
+
+interface CachedHash {
+  hash: string;
+  isEmpty: boolean;
+}
+
+// Whitespace-only normalize: `K0014 = '9891978'` == `K0014='9891978'`.
+function normalizeChql(s: string): string {
+  return s.trim().replace(/\s+/g, " ");
+}
 
 // ─── MCP Client ─────────────────────────────────────────────────────────────
 
@@ -172,7 +184,11 @@ async function callMCPTool(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
-  const result = await mcpClient.callTool({ name: toolName, arguments: args });
+  const result = await mcpClient.callTool(
+    { name: toolName, arguments: args },
+    undefined,
+    { timeout: MCP_CALL_TIMEOUT_MS },
+  );
   if (!("content" in result) || !Array.isArray(result.content)) {
     return { text: JSON.stringify(result), isError: false };
   }
@@ -198,43 +214,50 @@ async function getMCPToolsAsAISDKTools(mcpClient: Client): Promise<ToolSet> {
   return toolSet;
 }
 
+async function fetchHash(
+  mcpClient: Client,
+  chql: string,
+): Promise<CachedHash | "error"> {
+  let text: { text: string; isError: boolean };
+  try {
+    text = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
+      query: chql,
+      pageSize: EVAL_PAGE_SIZE,
+    });
+  } catch {
+    return "error";
+  }
+  if (text.isError) return "error";
+  const h = hashMCPResponseText(text.text);
+  if (!h) return "error";
+  return { hash: h.hash, isEmpty: h.isEmpty };
+}
+
 async function computeEquivalence(
   mcpClient: Client,
   actualChql: string | undefined,
   expectedChql: string | null,
+  expectedHashCache: Map<string, CachedHash>,
 ): Promise<ChqlEquivalent | undefined> {
-  if (!actualChql) return undefined;
-  if (expectedChql === null) {
-    // No reference to compare against (refusal/clarification question). Equivalence is undefined.
-    return undefined;
+  if (!actualChql || expectedChql === null) return undefined;
+
+  // Identical CHQL ⇒ identical row sets; same fast-path rejudgeRun uses on historical rows.
+  if (normalizeChql(actualChql) === normalizeChql(expectedChql)) {
+    return "equivalent";
   }
 
-  let actualText: { text: string; isError: boolean };
-  try {
-    actualText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
-      query: actualChql,
-      pageSize: EVAL_PAGE_SIZE,
-    });
-  } catch {
-    return "actual_error";
-  }
-  if (actualText.isError) return "actual_error";
-  const actualHash = hashMCPResponseText(actualText.text);
-  if (!actualHash) return "actual_error";
+  const actualHash = await fetchHash(mcpClient, actualChql);
+  if (actualHash === "error") return "actual_error";
 
-  let expectedText: { text: string; isError: boolean };
-  try {
-    expectedText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
-      query: expectedChql,
-      pageSize: EVAL_PAGE_SIZE,
-    });
-  } catch {
-    return "expected_empty";
+  let expectedHash = expectedHashCache.get(expectedChql);
+  if (!expectedHash) {
+    const fetched = await fetchHash(mcpClient, expectedChql);
+    if (fetched === "error") return "expected_empty";
+    expectedHash = fetched;
+    expectedHashCache.set(expectedChql, expectedHash);
   }
-  if (expectedText.isError) return "expected_empty";
-  const expectedHash = hashMCPResponseText(expectedText.text);
-  if (!expectedHash || expectedHash.isEmpty) return "expected_empty";
 
+  if (expectedHash.isEmpty) return "expected_empty";
   return actualHash.hash === expectedHash.hash ? "equivalent" : "different";
 }
 
@@ -249,6 +272,7 @@ async function runSingleQuery(
   mcpClient: Client,
   tools: ToolSet,
   promptMode: "full" | "composed",
+  expectedHashCache: Map<string, CachedHash>,
 ): Promise<{
   response: string;
   dslQuery?: string;
@@ -303,6 +327,7 @@ async function runSingleQuery(
     mcpClient,
     dslQuery,
     question.expectedChql,
+    expectedHashCache,
   );
 
   return {
@@ -363,6 +388,7 @@ async function main() {
 
   const results: EvalResult[] = [];
   const startedAt = new Date().toISOString();
+  const expectedHashCache = new Map<string, CachedHash>();
 
   for (let i = 0; i < questions.length; i++) {
     const question = questions[i];
@@ -376,6 +402,7 @@ async function main() {
         mcpClient,
         tools,
         config.promptMode,
+        expectedHashCache,
       );
 
       const actualChql = result.dslQuery ?? null;

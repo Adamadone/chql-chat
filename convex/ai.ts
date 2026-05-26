@@ -34,6 +34,8 @@ const CHAT_MAX_TOKENS = 4096;
 const TITLE_MAX_TOKENS = 30;
 const TITLE_MAX_LENGTH = 40;
 const LLM_TITLE_MAX_LENGTH = 60;
+// SDK default is 60s; chy.stat can exceed that on broad pageSize=1000 calls.
+const MCP_CALL_TIMEOUT_MS = 180_000;
 
 // ─── Provider factory ───────────────────────────────────────────────────────
 
@@ -239,10 +241,11 @@ export async function callMCPTool(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<{ text: string; isError: boolean }> {
-  const result = await mcpClient.callTool({
-    name: toolName,
-    arguments: args,
-  });
+  const result = await mcpClient.callTool(
+    { name: toolName, arguments: args },
+    undefined,
+    { timeout: MCP_CALL_TIMEOUT_MS },
+  );
 
   if (!("content" in result) || !Array.isArray(result.content)) {
     return { text: JSON.stringify(result), isError: false };

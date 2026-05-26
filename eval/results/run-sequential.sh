@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/../.."
 
-MODELS=(claude-haiku-4-5 gpt-5.4 gpt-5.3-chat-latest claude-sonnet-4-6 claude-opus-4-7)
+MODELS=(claude-haiku-4-5 gpt-5.4 gpt-5.5 claude-sonnet-4-6 claude-opus-4-7)
 LOG=eval/results/sequential.log
 : > "$LOG"
 

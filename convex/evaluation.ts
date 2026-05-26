@@ -43,7 +43,7 @@ const PRICING: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "gpt-5.4": { input: 2.5, output: 15 },
-  "gpt-5.3-chat-latest": { input: 1.75, output: 14 },
+  "gpt-5.5": { input: 5, output: 30 },
 };
 
 function estimateCost(
@@ -58,6 +58,11 @@ function estimateCost(
 
 // ─── Core eval logic ────────────────────────────────────────────────────────
 
+interface CachedHash {
+  hash: string;
+  isEmpty: boolean;
+}
+
 interface SingleQueryOutcome {
   response: string;
   dslQuery?: string;
@@ -67,13 +72,19 @@ interface SingleQueryOutcome {
   totalTokens: number;
   responseTimeMs: number;
   chqlEquivalent?: ChqlEquivalent;
+  /** Caller persists this so subsequent questions with the same expectedChql skip chy.stat. */
+  freshExpectedHash?: CachedHash;
 }
 
-// Fetches actual + expected row-set hashes back-to-back (~100ms apart) so chy.stat data
-// drift mid-run can't invalidate the comparison.
+interface EquivalenceResult {
+  verdict: ChqlEquivalent | undefined;
+  freshExpectedHash?: CachedHash;
+}
+
 async function runSingleQuery(
   question: GoldenQuestion,
   modelId: string,
+  cachedExpectedHash: CachedHash | undefined,
 ): Promise<SingleQueryOutcome> {
   const { client: mcpClient, tools } = await connectAndDiscoverTools();
 
@@ -85,19 +96,15 @@ async function runSingleQuery(
     const chatHistory = [{ role: "user" as const, content: question.query }];
 
     const startTime = Date.now();
-    const result = await runLLMWithTools(
-      systemPrompt,
-      chatHistory,
-      tools,
-      modelId,
-    );
+    const result = await runLLMWithTools(systemPrompt, chatHistory, tools, modelId);
     const responseTimeMs = Date.now() - startTime;
 
     const actualChql = result.metadata?.dslQuery;
-    const chqlEquivalent = await computeEquivalence(
+    const equivalence = await computeEquivalence(
       mcpClient,
       actualChql,
       question.expectedChql,
+      cachedExpectedHash,
     );
 
     return {
@@ -108,67 +115,79 @@ async function runSingleQuery(
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
       responseTimeMs,
-      chqlEquivalent,
+      chqlEquivalent: equivalence.verdict,
+      freshExpectedHash: equivalence.freshExpectedHash,
     };
   } finally {
-    if (mcpClient) {
-      await closeMCPClient(mcpClient);
-    }
+    if (mcpClient) await closeMCPClient(mcpClient);
   }
 }
 
-// Returns undefined when there is no actualChql to judge or no reference to compare against.
+// Actual + expected fetched back-to-back (~100ms) so chy.stat data drift mid-run
+// can't invalidate the hash comparison. Verdict is undefined when there's nothing
+// to judge (no actualChql, or reference-free question).
 async function computeEquivalence(
   mcpClient: Awaited<ReturnType<typeof connectAndDiscoverTools>>["client"],
   actualChql: string | undefined,
   expectedChql: string | null,
-): Promise<ChqlEquivalent | undefined> {
-  if (!mcpClient || !actualChql) return undefined;
-  if (expectedChql === null) return undefined;
-
-  let actualText: { text: string; isError: boolean };
-  try {
-    actualText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
-      query: actualChql,
-      pageSize: EVAL_PAGE_SIZE,
-    });
-  } catch {
-    return "actual_error";
+  cachedExpectedHash: CachedHash | undefined,
+): Promise<EquivalenceResult> {
+  if (!mcpClient || !actualChql || expectedChql === null) {
+    return { verdict: undefined };
   }
-  if (actualText.isError) return "actual_error";
 
-  const actualHash = hashMCPResponseText(actualText.text);
-  if (!actualHash) return "actual_error";
+  // Identical CHQL ⇒ identical row sets; same fast-path rejudgeRun uses on historical rows.
+  if (normalizeChql(actualChql) === normalizeChql(expectedChql)) {
+    return { verdict: "equivalent" };
+  }
 
-  // Compute expectedHash first so identical-CHQL-against-no-data isn't misreported as unjudgeable.
-  let expectedHash: ReturnType<typeof hashMCPResponseText> | null = null;
-  let expectedFailed = false;
+  const actualHash = await fetchHash(mcpClient, actualChql);
+  if (actualHash === "error") return { verdict: "actual_error" };
 
-  try {
-    const expectedText = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
-      query: expectedChql,
-      pageSize: EVAL_PAGE_SIZE,
-    });
-    if (expectedText.isError) {
-      expectedFailed = true;
-      console.warn(
-        `[Eval] Expected CHQL returned isError for "${expectedChql}"`,
-      );
-    } else {
-      expectedHash = hashMCPResponseText(expectedText.text);
+  let expectedHash: CachedHash | null = cachedExpectedHash ?? null;
+  let freshExpectedHash: CachedHash | undefined;
+  if (!expectedHash) {
+    const fetched = await fetchHash(mcpClient, expectedChql);
+    if (fetched !== "error") {
+      expectedHash = fetched;
+      freshExpectedHash = fetched;
     }
-  } catch {
-    expectedFailed = true;
-    console.warn(`[Eval] Expected CHQL fetch threw for "${expectedChql}"`);
   }
 
   if (expectedHash && actualHash.hash === expectedHash.hash) {
-    return "equivalent";
+    return { verdict: "equivalent", freshExpectedHash };
   }
-  if (expectedFailed || !expectedHash || expectedHash.isEmpty) {
-    return "expected_empty";
+  if (!expectedHash || expectedHash.isEmpty) {
+    return { verdict: "expected_empty", freshExpectedHash };
   }
-  return "different";
+  return { verdict: "different", freshExpectedHash };
+}
+
+// Fetches a CHQL's row-set hash via MCP. "error" covers both transport failures
+// and chy.stat-side errors so the caller can map them to its own verdict.
+async function fetchHash(
+  mcpClient: NonNullable<
+    Awaited<ReturnType<typeof connectAndDiscoverTools>>["client"]
+  >,
+  chql: string,
+): Promise<CachedHash | "error"> {
+  let text: { text: string; isError: boolean };
+  try {
+    text = await callMCPTool(mcpClient, SEARCH_TOOL_NAME, {
+      query: chql,
+      pageSize: EVAL_PAGE_SIZE,
+    });
+  } catch {
+    console.warn(`[Eval] CHQL fetch threw for "${chql}"`);
+    return "error";
+  }
+  if (text.isError) {
+    console.warn(`[Eval] CHQL returned isError for "${chql}"`);
+    return "error";
+  }
+  const h = hashMCPResponseText(text.text);
+  if (!h) return "error";
+  return { hash: h.hash, isEmpty: h.isEmpty };
 }
 
 // ─── Exported actions ───────────────────────────────────────────────────────
@@ -192,7 +211,27 @@ export const runQueryAction = internalAction({
     );
 
     try {
-      const result = await runSingleQuery(question, args.modelId);
+      const cachedHashes = await ctx.runQuery(
+        internal.evaluationHelpers.getExpectedHashes,
+        { runId: args.runId },
+      );
+      const cachedExpectedHash = question.expectedChql
+        ? cachedHashes.find((h) => h.chql === question.expectedChql)
+        : undefined;
+
+      const result = await runSingleQuery(
+        question,
+        args.modelId,
+        cachedExpectedHash,
+      );
+
+      if (result.freshExpectedHash && question.expectedChql) {
+        await ctx.runMutation(internal.evaluationHelpers.appendExpectedHash, {
+          runId: args.runId,
+          chql: question.expectedChql,
+          ...result.freshExpectedHash,
+        });
+      }
 
       const usedTool = result.usedTool;
       const actualChql = result.dslQuery ?? null;

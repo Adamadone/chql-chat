@@ -226,6 +226,36 @@ export const patchEvalResultFields = internalMutation({
   },
 });
 
+export const getExpectedHashes = internalQuery({
+  args: { runId: v.id("evalRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    return run?.expectedHashes ?? [];
+  },
+});
+
+/** Idempotent — first writer wins so concurrent actions can't clobber each other. */
+export const appendExpectedHash = internalMutation({
+  args: {
+    runId: v.id("evalRuns"),
+    chql: v.string(),
+    hash: v.string(),
+    isEmpty: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) return;
+    const existing = run.expectedHashes ?? [];
+    if (existing.some((e) => e.chql === args.chql)) return;
+    await ctx.db.patch(args.runId, {
+      expectedHashes: [
+        ...existing,
+        { chql: args.chql, hash: args.hash, isEmpty: args.isEmpty },
+      ],
+    });
+  },
+});
+
 /** Like finalizeEvalRun but leaves status/completedAt alone (used by rejudgeRun). */
 export const recomputeRunAggregates = internalMutation({
   args: { runId: v.id("evalRuns") },

@@ -45,6 +45,16 @@ export default defineSchema({
     ),
     totalQueries: v.number(),
     methodologyVersion: v.optional(v.string()),
+    // Lazy cache: same expectedChql across questions hits chy.stat once per run.
+    expectedHashes: v.optional(
+      v.array(
+        v.object({
+          chql: v.string(),
+          hash: v.string(),
+          isEmpty: v.boolean(),
+        }),
+      ),
+    ),
     aggregateMetrics: v.optional(
       v.object({
         successRate: v.number(),
