@@ -1,5 +1,20 @@
 // See ./CONTEXT.md for module overview.
-export const CHQL_REFERENCE = `
+//
+// CHQL_REFERENCE is split into a CORE prefix (always shipped) plus a record of
+// optional sections. `buildChqlReference(sections)` re-assembles the full
+// reference in a fixed canonical order so the resulting string is identical to
+// the legacy single-string export when `sections === 'all'`. This split exists
+// so that the local-vLLM path can route in only the sections the user actually
+// needs, reducing prefill tokens; Anthropic / OpenAI keep the full block for
+// prompt-cache stability.
+
+/** Conditional section IDs. CORE is always shipped and has no ID. */
+export const SECTION_IDS = ["part", "char", "value", "ops", "alarms", "antlr"] as const;
+export type SectionId = (typeof SECTION_IDS)[number];
+
+// ─── CORE: prefix (always shipped) ──────────────────────────────────────────
+
+const CORE_PREFIX = `
 ## CHQL (chy.stat Query Language) — Complete Reference
 
 CHQL is a text-based domain-specific language for querying industrial measurement data.
@@ -44,7 +59,11 @@ A CHQL query is composed of one or more **criteria**, which can be combined:
 The chy.stat data model has three entity levels — **Part** (the manufactured product), **Characteristic** (a measurable property of a part), and **Value** (an individual measurement of a characteristic). The K-key tables below are grouped accordingly. When the user's phrasing is ambiguous, use the group that matches the entity they are asking about. If you are unsure, ask the user.
 
 This deployment does **not** expose catalog tables (operation-name lookups, product catalogs, etc.) through CHQL. Operation references go through K2311 (the characteristic-level operation code), not through a separate catalog K-key. Do not invent K4062/K4063 etc.
+`;
 
+// ─── Conditional sections ───────────────────────────────────────────────────
+
+const SECTION_PART = `
 #### Part-level K-keys
 
 | K-key | Meaning                                  | Type    | Sample value   |
@@ -54,6 +73,12 @@ This deployment does **not** expose catalog tables (operation-name lookups, prod
 | K1008 | Part type                                | String  | 'IPA'          |
 | K1044 | ID of the product in the Product catalog | Integer | 3              |
 
+**Part vocabulary used in this deployment** (domain values, not inferable from the grammar):
+- Known part descriptions (K1002): 'ALE mySCADA', 'NEIPA YARVYN', 'IPA CHYSTAT'.
+- Known part types (K1008): 'ALE', 'NEIPA', 'IPA'.
+`;
+
+const SECTION_CHAR = `
 #### Characteristic-level K-keys
 
 | K-key | Meaning                                                                                                                   | Type    | Sample value    |
@@ -75,8 +100,12 @@ This deployment does **not** expose catalog tables (operation-name lookups, prod
 | K2120 | Lower specification limit type (1 = specification limit; 2 = physical (natural) limit)                                    | Integer | 1               |
 | K2121 | Upper specification limit type (1 = specification limit; 2 = physical (natural) limit)                                    | Integer | 1               |
 | K2142 | Unit description                                                                                                          | String  | 'l'             |
-| K2311 | Operation code (on the characteristic) — use this for operation filters                                                   | String  | 'OP30'          |
 
+**Characteristic vocabulary used in this deployment** (domain values, not inferable from the grammar):
+- Common characteristic codes (K2002) include (non-exhaustive): 'filling_value', 'air_pressure', 'bottle_mass', 'bottle_weight', 'bottle_state', 'env_temperature', 'env_humidity', 'speed', 'quality', 'chilling', 'cleanliness', 'input_quality', 'input_quality_ordinal', 'input_temperature', 'label_position_x', 'label_position_y', 'ai_letters_check', 'capping_start-force', 'capping_start-stroke', 'capping_start-time', 'local_maximum-force', 'local_maximum-stroke', 'local_maximum-time', 'local_minimum-force', 'local_minimum-stroke', 'local_minimum-time', 'stroke-force', 'time-force', 'time-stroke'. Treat user-supplied characteristic names as canonical when they look reasonable; correct obvious typos against this list.
+`;
+
+const SECTION_VALUE = `
 #### Value-level K-keys
 
 | K-key | Meaning                                      | Type    | Sample value                  |
@@ -86,23 +115,44 @@ This deployment does **not** expose catalog tables (operation-name lookups, prod
 | K0010 | ID of the operation on the value             | Integer | 4                             |
 | K0014 | Piece identifier                             | String  | '10113943'                    |
 | K0053 | Batch number                                 | String  | '69752-ALE'                   |
+`;
 
-### Vocabulary used in this deployment
+// K2311 lives in OPS (not CHAR) so the operation-routed subset is self-contained:
+// a question like "show OP30 measurements" triggers OPS only, and OPS must
+// carry both the K-key row and the vocabulary line so the model can compose
+// `K2311 = 'OP30'` without seeing the characteristic table.
+const SECTION_OPS = `
+#### Operation-code K-key
 
-The model cannot infer the following identifiers from the grammar; they are domain values found in the data.
+| K-key | Meaning                                                                 | Type    | Sample value    |
+|-------|-------------------------------------------------------------------------|---------|-----------------|
+| K2311 | Operation code (on the characteristic) — use this for operation filters | String  | 'OP30'          |
 
-- **Known part descriptions (K1002)**: 'ALE mySCADA', 'NEIPA YARVYN', 'IPA CHYSTAT'.
-- **Known part types (K1008)**: 'ALE', 'NEIPA', 'IPA'.
-- **Known operation codes (K2311)**: 'EXT', 'OP30', 'OP35', 'OP40', 'OP50', 'OP60'. There is no 'OP10' or 'OP20' in this deployment.
-- **Common characteristic codes (K2002)** include (non-exhaustive): 'filling_value', 'air_pressure', 'bottle_mass', 'bottle_weight', 'bottle_state', 'env_temperature', 'env_humidity', 'speed', 'quality', 'chilling', 'cleanliness', 'input_quality', 'input_quality_ordinal', 'input_temperature', 'label_position_x', 'label_position_y', 'ai_letters_check', 'capping_start-force', 'capping_start-stroke', 'capping_start-time', 'local_maximum-force', 'local_maximum-stroke', 'local_maximum-time', 'local_minimum-force', 'local_minimum-stroke', 'local_minimum-time', 'stroke-force', 'time-force', 'time-stroke'. Treat user-supplied characteristic names as canonical when they look reasonable; correct obvious typos against this list.
-- **Alarm vocabulary** — the alarm names accepted by \`HAS ALARM '<name>'\` in this deployment are:
-  - \`'aboveSpecification'\` — measured value above the upper specification limit (K2111).
-  - \`'belowSpecification'\` — measured value below the lower specification limit (K2110).
-  - \`'aboveAcceptance'\` — measured value above the upper acceptance limit (K2117).
-  - \`'belowAcceptance'\` — measured value below the lower acceptance limit (K2116).
-  - \`'attribute'\` — attribute-style flag (used on attribute/ordinal/nominal characteristics).
-  Use \`HAS NO ALARM\` when the user asks for "no issues", "no alarms", "clean readings". Use \`NOT HAS NO ALARM\` when the user asks for "any alarm", "anything flagged", "issues". Use specific alarm names from the list above only when the user names them explicitly.
+**Operation vocabulary used in this deployment** (domain values, not inferable from the grammar):
+- Known operation codes (K2311): 'EXT', 'OP30', 'OP35', 'OP40', 'OP50', 'OP60'. There is no 'OP10' or 'OP20' in this deployment.
+`;
 
+const SECTION_ALARMS = `
+#### Alarms
+
+**Alarm vocabulary** — the alarm names accepted by \`HAS ALARM '<name>'\` in this deployment are:
+- \`'aboveSpecification'\` — measured value above the upper specification limit (K2111).
+- \`'belowSpecification'\` — measured value below the lower specification limit (K2110).
+- \`'aboveAcceptance'\` — measured value above the upper acceptance limit (K2117).
+- \`'belowAcceptance'\` — measured value below the lower acceptance limit (K2116).
+- \`'attribute'\` — attribute-style flag (used on attribute/ordinal/nominal characteristics).
+
+Use \`HAS NO ALARM\` when the user asks for "no issues", "no alarms", "clean readings". Use \`NOT HAS NO ALARM\` when the user asks for "any alarm", "anything flagged", "issues". Use specific alarm names from the list above only when the user names them explicitly.
+
+**Alarm query construction**:
+- \`HAS NO ALARM\` — measurements with no alarm at all.
+- \`NOT HAS NO ALARM\` — measurements with at least one alarm (any kind).
+- \`HAS ALARM 'aboveSpecification' OR HAS ALARM 'belowSpecification'\` — out-of-spec readings.
+`;
+
+// ─── CORE: suffix (always shipped) ──────────────────────────────────────────
+
+const CORE_SUFFIX = `
 ### Query Construction Guidelines
 
 1. **String values** must ALWAYS be wrapped in single quotes: \`K2002 = 'filling_value'\` (correct), NOT \`K2002 = filling_value\` (wrong).
@@ -110,10 +160,6 @@ The model cannot infer the following identifiers from the grammar; they are doma
 3. **Date/time values** are strings in ISO 8601 format with timezone: \`K0004 >= '2026-05-11T06:00:00+02:00'\`.
 4. **Combining conditions**: Use AND/OR with parentheses for clarity: \`K1002 = 'IPA CHYSTAT' AND (K2311 = 'OP30' OR K2311 = 'OP40')\`.
 5. **Negation**: \`NOT K2002 = 'test'\` or \`NOT (K0001 > 100 AND K0001 < 200)\`.
-6. **Alarm queries**:
-   - \`HAS NO ALARM\` — measurements with no alarm at all.
-   - \`NOT HAS NO ALARM\` — measurements with at least one alarm (any kind).
-   - \`HAS ALARM 'aboveSpecification' OR HAS ALARM 'belowSpecification'\` — out-of-spec readings.
 
 ### Example Queries
 
@@ -141,7 +187,9 @@ Below are examples mapping natural language requests to correct CHQL queries. Va
 
 **Example 7**: "Find anything that flagged an alarm today for part NEIPA YARVYN"
 → \`K1002 = 'NEIPA YARVYN' AND K0004 >= '2026-05-11T00:00:00+02:00' AND K0004 < '2026-05-12T00:00:00+02:00' AND NOT HAS NO ALARM\`
+`;
 
+const SECTION_ANTLR = `
 ### ANTLR4 Grammar (Formal Specification)
 
 For reference, here is the complete formal grammar:
@@ -177,3 +225,41 @@ comparison_operator: = | < | <= | > | >= | LIKE | =~
 kkey_value: NUMBER | STRING
 \`\`\`
 `;
+
+/**
+ * Section blobs in the canonical insertion order. Conditional sections are
+ * placed between the K-key preamble (CORE_PREFIX) and the Query Construction
+ * Guidelines (CORE_SUFFIX), except ANTLR which is appended at the very end as
+ * an optional formal appendix.
+ */
+export const CHQL_REFERENCE_SECTIONS: Record<SectionId, string> = {
+  part: SECTION_PART,
+  char: SECTION_CHAR,
+  value: SECTION_VALUE,
+  ops: SECTION_OPS,
+  alarms: SECTION_ALARMS,
+  antlr: SECTION_ANTLR,
+};
+
+/** Conditional sections in the order they appear in the rendered reference. */
+const MID_SECTIONS: readonly SectionId[] = ["part", "char", "value", "ops", "alarms"];
+
+/**
+ * Assemble the CHQL reference. `sections === 'all'` returns the full reference
+ * (byte-equivalent to the legacy `CHQL_REFERENCE` constant). Passing an array
+ * includes only the requested sections in canonical order; CORE is always
+ * shipped.
+ */
+export function buildChqlReference(sections: SectionId[] | "all"): string {
+  const want = sections === "all" ? new Set<SectionId>(SECTION_IDS) : new Set(sections);
+  const parts: string[] = [CORE_PREFIX];
+  for (const id of MID_SECTIONS) {
+    if (want.has(id)) parts.push(CHQL_REFERENCE_SECTIONS[id]);
+  }
+  parts.push(CORE_SUFFIX);
+  if (want.has("antlr")) parts.push(CHQL_REFERENCE_SECTIONS.antlr);
+  return parts.join("");
+}
+
+/** Back-compat: the full reference string. Equivalent to `buildChqlReference('all')`. */
+export const CHQL_REFERENCE: string = buildChqlReference("all");

@@ -24,10 +24,12 @@ import {
   hashMCPResponseText,
   kkeysMatch,
   parseChql,
+  routeSections,
   stripToolTags,
   type ChqlEquivalent,
   type GoldenQuestion,
   type ModelOutput,
+  type SectionId,
   type Verdict,
 } from "@chql-chat/chql-core";
 import { renderReport, type PerQuestionRow } from "./lib/render-report.js";
@@ -72,12 +74,23 @@ function parseArgs() {
     );
     process.exit(1);
   }
+  // Prompt composer: `full` ships the entire CHQL_REFERENCE (current
+  // behaviour, default); `composed` invokes routeSections per question.
+  // The flag is the experimental knob for the small-local-model A/B.
+  const promptMode = (parsed["prompt-mode"] ?? "full") as "full" | "composed";
+  if (promptMode !== "full" && promptMode !== "composed") {
+    console.error(
+      `Invalid --prompt-mode value: ${promptMode}. Expected "full" or "composed".`,
+    );
+    process.exit(1);
+  }
   return {
     model,
     vllmUrl: parsed["vllm-url"] ?? "http://localhost:1234/v1",
     mcpUrl: parsed["mcp-url"] ?? process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp",
     mcpAuthToken: parsed["mcp-auth-token"] ?? process.env.MCP_AUTH_TOKEN,
     set,
+    promptMode,
   };
 }
 
@@ -91,6 +104,8 @@ interface EvalResult {
   success: boolean;
   verdict: Verdict;
   reason: string;
+  /** `'all'` for full-prompt runs, otherwise the routed conditional sections. */
+  sections: SectionId[] | "all";
   metrics: {
     responseTimeMs: number;
     inputTokens: number;
@@ -106,6 +121,8 @@ interface EvalReport {
   modelId: string;
   set: "golden" | "sample";
   methodologyVersion: string;
+  /** `'full'` ships the entire CHQL_REFERENCE; `'composed'` routes per question. */
+  promptMode: "full" | "composed";
   vllmUrl: string;
   startedAt: string;
   completedAt: string;
@@ -229,6 +246,7 @@ async function runSingleQuery(
   model: ReturnType<ReturnType<typeof createOpenAI>>,
   mcpClient: Client,
   tools: ToolSet,
+  promptMode: "full" | "composed",
 ): Promise<{
   response: string;
   dslQuery?: string;
@@ -238,8 +256,16 @@ async function runSingleQuery(
   totalTokens: number;
   responseTimeMs: number;
   chqlEquivalent?: ChqlEquivalent;
+  sections: SectionId[] | "all";
 }> {
-  const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
+  // Route on the question text alone — `run-local.ts` is single-turn (no chat
+  // history), matching the eval methodology v2 invariant.
+  const sections: SectionId[] | "all" =
+    promptMode === "composed" ? routeSections([question.query]) : "all";
+  const systemPrompt = buildSystemPrompt({
+    hasTools: Object.keys(tools).length > 0,
+    sections,
+  });
 
   let dslQuery: string | undefined;
   const toolCalls: string[] = [];
@@ -285,6 +311,7 @@ async function runSingleQuery(
     totalTokens: result.usage.totalTokens ?? 0,
     responseTimeMs,
     chqlEquivalent,
+    sections,
   };
 }
 
@@ -295,10 +322,11 @@ async function main() {
   const modelId = `local/${config.model}`;
 
   console.log(`\n🔧 Local Eval Runner`);
-  console.log(`   Model:    ${config.model}`);
-  console.log(`   Set:      ${config.set}`);
-  console.log(`   vLLM URL: ${config.vllmUrl}`);
-  console.log(`   MCP URL:  ${config.mcpUrl}\n`);
+  console.log(`   Model:       ${config.model}`);
+  console.log(`   Set:         ${config.set}`);
+  console.log(`   Prompt mode: ${config.promptMode}`);
+  console.log(`   vLLM URL:    ${config.vllmUrl}`);
+  console.log(`   MCP URL:     ${config.mcpUrl}\n`);
 
   const setFile = config.set === "sample" ? "sample-set.json" : "golden-set.json";
   const setPath = join(__dirname, setFile);
@@ -339,7 +367,13 @@ async function main() {
     try {
       console.log(`[${i + 1}/${questions.length}] "${question.query}"`);
 
-      const result = await runSingleQuery(question, model, mcpClient, tools);
+      const result = await runSingleQuery(
+        question,
+        model,
+        mcpClient,
+        tools,
+        config.promptMode,
+      );
 
       const actualChql = result.dslQuery ?? null;
       const chqlParses = actualChql ? parseChql(actualChql).ok : undefined;
@@ -369,6 +403,7 @@ async function main() {
         success: graded.success,
         verdict: graded.verdict,
         reason: graded.reason,
+        sections: result.sections,
         metrics: {
           responseTimeMs: result.responseTimeMs,
           inputTokens: result.inputTokens,
@@ -381,8 +416,10 @@ async function main() {
       });
 
       const status = graded.success ? "✅" : "❌";
+      const sectionsLabel =
+        result.sections === "all" ? "all" : `[${result.sections.join(",")}]`;
       console.log(
-        `   ${status} ${graded.verdict} · CHQL: ${actualChql ?? "(none)"} | ${result.responseTimeMs}ms | ${result.totalTokens} tokens`,
+        `   ${status} ${graded.verdict} · CHQL: ${actualChql ?? "(none)"} | ${result.responseTimeMs}ms | ${result.totalTokens} tokens | sections: ${sectionsLabel}`,
       );
     } catch (error) {
       console.error(`   ❌ Error:`, error instanceof Error ? error.message : error);
@@ -400,6 +437,7 @@ async function main() {
         success: graded.success,
         verdict: "actual_error",
         reason: "runtime error during generation",
+        sections: "all",
         metrics: {
           responseTimeMs: 0,
           inputTokens: 0,
@@ -428,6 +466,7 @@ async function main() {
     modelId,
     set: config.set,
     methodologyVersion: METHODOLOGY_VERSION,
+    promptMode: config.promptMode,
     vllmUrl: config.vllmUrl,
     startedAt,
     completedAt,
@@ -452,10 +491,14 @@ async function main() {
   mkdirSync(join(__dirname, "results"), { recursive: true });
 
   const safeModelId = modelId.replace(/[\/\\:*?"<>|]/g, "_");
-  const jsonPath = join(__dirname, "results", `${safeModelId}.json`);
+  // Suffix the report filename only for the new `composed` mode so existing
+  // full-prompt artefacts (referenced from the thesis) keep their canonical
+  // names and `merge-results.ts` / `aggregate-summary.ts` find them.
+  const modeSuffix = config.promptMode === "composed" ? "_composed" : "";
+  const jsonPath = join(__dirname, "results", `${safeModelId}${modeSuffix}.json`);
   writeFileSync(jsonPath, JSON.stringify(report, null, 2));
 
-  const mdPath = join(__dirname, "results", `${safeModelId}.md`);
+  const mdPath = join(__dirname, "results", `${safeModelId}${modeSuffix}.md`);
   const perQuestion: PerQuestionRow[] = results.map((r) => ({
     question: r.question,
     actualChql: r.actualChql,

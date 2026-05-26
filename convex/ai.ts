@@ -17,9 +17,11 @@ import {
   ANTHROPIC_CACHE_CONTROL,
   buildSystemPrompt,
   parseSearchEnvelope,
+  routeSections,
   splitEnvelope,
   stripToolTags,
   type SearchEnvelope,
+  type SectionId,
 } from "@chql-chat/chql-core";
 import {MAX_USER_MESSAGE_CHARS} from "./constants";
 
@@ -428,7 +430,37 @@ export const processMessage = action({
       const modelId = args.modelId ?? DEFAULT_MODEL;
 
       try {
-        const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0, args.timeZone);
+        // Prompt composer (local-model only): route in only the conditional
+        // CHQL_REFERENCE sections the user actually mentioned, cutting prefill
+        // tokens on the slow local path. Cloud providers keep `sections: 'all'`
+        // so their Anthropic prompt-cache prefix stays stable. Kill-switch:
+        // `PROMPT_COMPOSE_LOCAL=off` reverts local sessions to the full prompt
+        // without a redeploy.
+        const composeLocal = process.env.PROMPT_COMPOSE_LOCAL !== "off";
+        const isLocal = modelId.startsWith("local/");
+        const sections: SectionId[] | "all" =
+          isLocal && composeLocal
+            ? routeSections(
+                // Route on raw user text from the DB, not the tag-wrapped
+                // chatHistory built above — the router should see what the
+                // human typed, not the injection-defense wrappers.
+                messages
+                  .filter((m) => m.role === "user")
+                  .map((m) => m.content),
+              )
+            : "all";
+        if (isLocal) {
+          console.log(
+            `[compose] modelId=${modelId} composeLocal=${composeLocal} sections=${
+              sections === "all" ? "all" : `[${sections.join(",")}]`
+            }`,
+          );
+        }
+        const systemPrompt = buildSystemPrompt({
+          hasTools: Object.keys(tools).length > 0,
+          timeZone: args.timeZone,
+          sections,
+        });
         const result = await runLLMWithTools(
           systemPrompt,
           chatHistory,

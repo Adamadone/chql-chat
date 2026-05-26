@@ -1,5 +1,5 @@
 // See ./CONTEXT.md for module overview.
-import { CHQL_REFERENCE } from "./reference.js";
+import { buildChqlReference, type SectionId } from "./reference.js";
 
 type JSONValue =
   | null
@@ -51,21 +51,44 @@ function formatLocalIso(date: Date, timeZone: string): string {
   return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
 }
 
+export interface BuildSystemPromptOptions {
+  hasTools: boolean;
+  timeZone?: string;
+  /**
+   * Which conditional CHQL_REFERENCE sections to include. `'all'` (default)
+   * preserves the legacy full-reference behaviour and applies Anthropic
+   * prompt-cache control so the cache prefix stays stable. Pass a routed
+   * subset (typically from `routeSections`) on the local-model path to trim
+   * prefill tokens; cache control is dropped in that case because the prefix
+   * varies per request.
+   */
+  sections?: SectionId[] | "all";
+}
+
 export function buildSystemPrompt(
-  hasTools: boolean,
-  timeZone?: string,
+  optsOrHasTools: BuildSystemPromptOptions | boolean,
+  timeZoneLegacy?: string,
 ): SystemPromptBlock[] {
-  const tz = timeZone ?? "UTC";
+  // Back-compat: old call sites pass (hasTools, timeZone?) positional.
+  const opts: BuildSystemPromptOptions =
+    typeof optsOrHasTools === "boolean"
+      ? { hasTools: optsOrHasTools, timeZone: timeZoneLegacy }
+      : optsOrHasTools;
+
+  const hasTools = opts.hasTools;
+  const tz = opts.timeZone ?? "UTC";
+  const sections: SectionId[] | "all" = opts.sections ?? "all";
+  const isFull = sections === "all";
   const localNowIso = formatLocalIso(new Date(), tz);
+  const reference = buildChqlReference(sections);
   const toolSection = hasTools
     ? `When the user asks a question that requires retrieving measurement data, use the search_measurements tool with a CHQL query.`
     : `The measurement search tool is currently unavailable. If the user asks to search for measurements, let them know the service is temporarily unavailable and to try again later. Do NOT simulate or fabricate tool calls, tool results, or measurement data.`;
 
-  return [
-    {
-      role: "system",
-      content: `You are a helpful assistant that helps users query industrial measurement data from the chy.stat system.
-${CHQL_REFERENCE}
+  const mainBlock: SystemPromptBlock = {
+    role: "system",
+    content: `You are a helpful assistant that helps users query industrial measurement data from the chy.stat system.
+${reference}
 LANGUAGE:
 - Always respond in the same natural language and script as the user's most recent message. If they write in Czech, reply in Czech using the Latin alphabet; if Russian, in Cyrillic; if English, in English. Never mix languages or alphabets within a single reply (do not insert Cyrillic words into a Czech reply, do not insert Czech words into an English reply, etc.).
 - Technical identifiers stay in their original form regardless of reply language: K-key names (K0001, K2002, ...), CHQL keywords (AND, OR, HAS ALARM, ...), characteristic codes (filling_value, water_consumption, ...), alarm names (belowAcceptance, valueOutsideSpecificationLimits, ...), and product/operation codes from the data.
@@ -114,8 +137,13 @@ PRESENTATION:
 - Respond with a short caption that references measurementCount (not rowCount), notable aggregate patterns (e.g. "average filling_value 0.497", "12 readings flagged 'belowAcceptance'"), and any direct answer to the user's question.
 - Do NOT recite long tables of rows in prose. Do NOT paste raw JSON.
 - If the user needs more data, mention they can paginate via the table controls or narrow the query — but do not promise that more data exists unless rowCount === page.pageSize.`,
-      providerOptions: ANTHROPIC_CACHE_CONTROL,
-    },
+    // cacheControl only when the system block is stable across requests.
+    // A routed (per-request) subset varies, so caching would waste budget.
+    ...(isFull ? { providerOptions: ANTHROPIC_CACHE_CONTROL } : {}),
+  };
+
+  return [
+    mainBlock,
     {
       role: "system",
       content: toolSection,
