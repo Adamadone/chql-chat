@@ -14,7 +14,7 @@
     "avgOutputTokens": 404.86,
     "avgTotalTokens": 18936.3,
     "chqlParsesRate": 0.8,
-    "equivalenceRate": 0.6,
+    "equivalenceRate": 0.8484848484848485,
     "toolUsageRate": 0.8
   },
   "results": [
@@ -1388,5 +1388,7 @@
         "chqlParses": true
       }
     }
-  ]
+  ],
+  "equivalenceCount": 28,
+  "equivalenceQuestionCount": 33
 }

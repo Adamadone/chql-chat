@@ -15,6 +15,7 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
   let toolUsageCount = 0;
   let chqlParsesCount = 0;
   let equivalenceCount = 0;
+  let equivalenceQuestionCount = 0;
   let kkeysCorrectCount = 0;
   let totalResponseTime = 0;
   let totalInputTokens = 0;
@@ -26,7 +27,13 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
     if (r.success) successCount++;
     if (r.metrics.usedTool) toolUsageCount++;
     if (r.metrics.chqlParses) chqlParsesCount++;
-    if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
+    // equivalenceRate is meaningful only for questions whose expectedBehavior is
+    // "equivalence" — refusal/clarification questions correctly produce no CHQL,
+    // so including them in the denominator artificially depresses the score.
+    if (r.expectedBehavior === "equivalence") {
+      equivalenceQuestionCount++;
+      if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
+    }
     if (r.metrics.kkeysCorrect) kkeysCorrectCount++;
     totalResponseTime += r.metrics.responseTimeMs;
     totalInputTokens += r.metrics.inputTokens;
@@ -45,9 +52,14 @@ export function computeAggregateMetrics(results: Doc<"evalResults">[]) {
       avgTotalTokens: totalTokensAll / n,
       totalCostUsd: totalCost,
       chqlParsesRate: chqlParsesCount / n,
-      equivalenceRate: equivalenceCount / n,
+      equivalenceRate:
+        equivalenceQuestionCount === 0
+          ? 0
+          : equivalenceCount / equivalenceQuestionCount,
       toolUsageRate: toolUsageCount / n,
     },
+    equivalenceCount,
+    equivalenceQuestionCount,
     kkeysCorrectCount,
     rowCount: results.length,
   };

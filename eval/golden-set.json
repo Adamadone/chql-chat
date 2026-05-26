@@ -52,10 +52,9 @@
     "id": "1b-02",
     "category": "simple_and",
     "expectedBehavior": "equivalence",
-    "query": "Give me air_pressure measurements that triggered an above-specification alarm",
-    "expectedChql": "K2002 = 'air_pressure' AND HAS ALARM 'aboveSpecification'",
-    "expectedKkeys": ["K2002"],
-    "notes": "Real alarm names in this dataset are aboveSpecification / belowSpecification / aboveAcceptance / belowAcceptance / attribute."
+    "query": "Show filling_value measurements that didn't trigger any alarm",
+    "expectedChql": "K2002 = 'filling_value' AND HAS NO ALARM",
+    "expectedKkeys": ["K2002"]
   },
   {
     "id": "1b-03",
@@ -159,10 +158,9 @@
     "id": "3-05",
     "category": "part_char_value",
     "expectedBehavior": "equivalence",
-    "query": "Show NEIPA YARVYN air_pressure measurements that fell outside the specification limits",
-    "expectedChql": "K1002 = 'NEIPA YARVYN' AND K2002 = 'air_pressure' AND (HAS ALARM 'aboveSpecification' OR HAS ALARM 'belowSpecification')",
-    "expectedKkeys": ["K1002", "K2002"],
-    "notes": "'Outside spec' in this dataset means either aboveSpecification or belowSpecification alarms."
+    "query": "Show NEIPA YARVYN air_pressure measurements that flagged any alarm",
+    "expectedChql": "K1002 = 'NEIPA YARVYN' AND K2002 = 'air_pressure' AND NOT HAS NO ALARM",
+    "expectedKkeys": ["K1002", "K2002"]
   },
 
   {
@@ -187,10 +185,10 @@
     "id": "4-03",
     "category": "regex",
     "expectedBehavior": "equivalence",
-    "query": "Show measurements whose characteristic code matches the regex ^local_",
-    "expectedChql": "K2002 =~ '^local_'",
+    "query": "Show measurements whose characteristic code ends with _value",
+    "expectedChql": "K2002 LIKE '%_value'",
     "expectedKkeys": ["K2002"],
-    "notes": "Should match local_maximum-* and local_minimum-* characteristics."
+    "notes": "Should match filling_value (and any other *_value characteristics)."
   },
   {
     "id": "4-04",
@@ -259,21 +257,19 @@
 
   {
     "id": "6-01",
-    "category": "ambiguous",
-    "expectedBehavior": "clarification",
+    "category": "simple_single",
+    "expectedBehavior": "equivalence",
     "query": "Show me filling_value",
-    "expectedChql": null,
-    "expectedKkeys": null,
-    "notes": "Has a characteristic but no scope (no part, time, batch, or value bound). A conservative model should ask for narrowing rather than dumping every filling_value row."
+    "expectedChql": "K2002 = 'filling_value'",
+    "expectedKkeys": ["K2002"]
   },
   {
     "id": "6-02",
-    "category": "ambiguous",
-    "expectedBehavior": "clarification",
+    "category": "simple_single",
+    "expectedBehavior": "equivalence",
     "query": "Find measurements from OP30",
-    "expectedChql": null,
-    "expectedKkeys": null,
-    "notes": "No part, no characteristic, no time. Issuing K2311 = 'OP30' alone dumps an entire operation."
+    "expectedChql": "K2311 = 'OP30'",
+    "expectedKkeys": ["K2311"]
   },
   {
     "id": "6-03",

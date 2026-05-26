@@ -13,7 +13,7 @@
 |---|---|
 | Overall success rate | 80.0% |
 | CHQL parse rate (tool-call rows) | 100.0% |
-| Equivalence rate (equivalence questions only) | 84.8% |
+| Equivalence rate (equivalence questions only) | 84.8% (28 / 33) |
 | K-keys correct (equivalence + non-empty expected) | 100.0% |
 | Tool usage rate | 80.0% |
 | Avg response time | 22332 ms |

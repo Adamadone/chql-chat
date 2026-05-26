@@ -110,8 +110,11 @@ export function renderReport(input: ReportInput): string {
   lines.push(
     `| CHQL parse rate (tool-call rows) | ${pctOpt(rateAmongTool(results, (r) => r.chqlParses === true))} |`,
   );
+  const equivalentCount = equivalenceRows.filter(
+    (r) => r.chqlEquivalent === "equivalent",
+  ).length;
   lines.push(
-    `| Equivalence rate (equivalence questions only) | ${pctOpt(equivalenceSubsetRate(equivalenceRows))} |`,
+    `| Equivalence rate (equivalence questions only) | ${pctOpt(equivalenceSubsetRate(equivalenceRows))} (${equivalentCount} / ${equivalenceRows.length}) |`,
   );
   lines.push(
     `| K-keys correct (equivalence + non-empty expected) | ${kkeysCorrectRate === null ? "n/a" : pct(kkeysCorrectRate)} |`,

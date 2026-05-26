@@ -28,7 +28,7 @@ It is defined by an ANTLR4 grammar. You MUST only generate queries that conform 
   Examples: 42, -3, 80.5, 0.001
 - **Strings**: Enclosed in single quotes. Cannot contain single quotes inside.
   Examples: 'IPA CHYSTAT', 'filling_value', '10113943', '2026-05-11T00:00:09+02:00'
-- **Comparison operators**: = (equals), < (less than), <= (less or equal), > (greater than), >= (greater or equal), LIKE (pattern match), =~ (regex match)
+- **Comparison operators**: = (equals), < (less than), <= (less or equal), > (greater than), >= (greater or equal), LIKE (pattern match)
 - **Keywords** (case-insensitive): ALARM, ALL, AND, ANY, HAS, IN, IS, LIKE, MARK, MATCHES, NO, NOT, NULL, OR, VALUE, VALUES
 - **Grouping**: ( ) parentheses, , (comma for IN lists)
 - **Whitespace**: Spaces, tabs, newlines are ignored (used freely for readability)
@@ -43,7 +43,6 @@ A CHQL query is composed of one or more **criteria**, which can be combined:
    - \`<K-key> IN (<value>, <value>, ...)\` — set membership (e.g. \`K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')\`)
    - \`<K-key> IS NULL\` — null check
    - \`HAS NO ALARM\` — no alarm present on the value
-   - \`HAS ALARM '<alarm_name>'\` — specific named alarm (see alarm vocabulary below)
    - \`HAS MARK <number>\` — specific mark value
 
 2. **Compound criteria** (combining simple criteria):
@@ -135,19 +134,11 @@ const SECTION_OPS = `
 const SECTION_ALARMS = `
 #### Alarms
 
-**Alarm vocabulary** — the alarm names accepted by \`HAS ALARM '<name>'\` in this deployment are:
-- \`'aboveSpecification'\` — measured value above the upper specification limit (K2111).
-- \`'belowSpecification'\` — measured value below the lower specification limit (K2110).
-- \`'aboveAcceptance'\` — measured value above the upper acceptance limit (K2117).
-- \`'belowAcceptance'\` — measured value below the lower acceptance limit (K2116).
-- \`'attribute'\` — attribute-style flag (used on attribute/ordinal/nominal characteristics).
-
-Use \`HAS NO ALARM\` when the user asks for "no issues", "no alarms", "clean readings". Use \`NOT HAS NO ALARM\` when the user asks for "any alarm", "anything flagged", "issues". Use specific alarm names from the list above only when the user names them explicitly.
+This deployment exposes alarms only as a presence/absence flag — named-alarm filters (\`HAS ALARM '<name>'\`) are not supported here.
 
 **Alarm query construction**:
-- \`HAS NO ALARM\` — measurements with no alarm at all.
-- \`NOT HAS NO ALARM\` — measurements with at least one alarm (any kind).
-- \`HAS ALARM 'aboveSpecification' OR HAS ALARM 'belowSpecification'\` — out-of-spec readings.
+- \`HAS NO ALARM\` — measurements with no alarm at all. Use when the user asks for "no issues", "no alarms", "clean readings".
+- \`NOT HAS NO ALARM\` — measurements with at least one alarm (any kind). Use when the user asks for "any alarm", "anything flagged", "issues", or any specific alarm condition like "out of spec" or "above the upper limit" (the API cannot distinguish alarm types).
 `;
 
 // ─── CORE: suffix (always shipped) ──────────────────────────────────────────
@@ -175,8 +166,8 @@ Below are examples mapping natural language requests to correct CHQL queries. Va
 **Example 3**: "Find measurements of part IPA CHYSTAT from operations OP30 and OP40"
 → \`K1002 = 'IPA CHYSTAT' AND (K2311 = 'OP30' OR K2311 = 'OP40')\`
 
-**Example 4**: "Give me measurements of characteristic air_pressure that are above the upper specification"
-→ \`K2002 = 'air_pressure' AND HAS ALARM 'aboveSpecification'\`
+**Example 4**: "Show me measurements for parts IPA CHYSTAT or NEIPA YARVYN"
+→ \`K1002 IN ('IPA CHYSTAT', 'NEIPA YARVYN')\`
 
 **Example 5**: "Show OP30 measurements from the current shift"
 → \`K2311 = 'OP30' AND K0004 >= '2026-05-11T06:00:00+02:00' AND K0004 < '2026-05-11T14:00:00+02:00'\`
@@ -199,7 +190,7 @@ For reference, here is the complete formal grammar:
 KKEY_IDENTIFIER: 'K' 'X'? [0-9]+;
 NUMBER: '-'? [0-9]+ ('.' [0-9]+)?;
 STRING: '\\'' ~'\\''* '\\'';
-Operators: =, <, <=, >, >=, LIKE, =~ (regex match)
+Operators: =, <, <=, >, >=, LIKE
 Keywords: ALARM, ALL, AND, ANY, HAS, IN, IS, LIKE, MARK, MATCHES, NO, NOT, NULL, OR, VALUE, VALUES
 
 // Parser
@@ -218,10 +209,9 @@ simple_criteria:
     | KKEY_IDENTIFIER IN '(' kkey_value (',' kkey_value)* ')'
     | KKEY_IDENTIFIER IS NULL
     | HAS NO ALARM
-    | HAS ALARM STRING
     | HAS MARK NUMBER
 
-comparison_operator: = | < | <= | > | >= | LIKE | =~
+comparison_operator: = | < | <= | > | >= | LIKE
 kkey_value: NUMBER | STRING
 \`\`\`
 `;

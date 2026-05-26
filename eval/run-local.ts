@@ -137,6 +137,8 @@ interface EvalReport {
     equivalenceRate: number;
     toolUsageRate: number;
   };
+  equivalenceCount: number;
+  equivalenceQuestionCount: number;
   results: EvalResult[];
 }
 
@@ -265,6 +267,7 @@ async function runSingleQuery(
   const systemPrompt = buildSystemPrompt({
     hasTools: Object.keys(tools).length > 0,
     sections,
+    timeZone: "Europe/Prague",
   });
 
   let dslQuery: string | undefined;
@@ -458,9 +461,16 @@ async function main() {
   const toolUsageCount = results.filter((r) => r.usedTool).length;
   const chqlParsesCount = results.filter((r) => r.metrics.chqlParses === true)
     .length;
-  const equivalenceCount = results.filter(
+  // equivalence rate is defined only over questions whose expectedBehavior is
+  // "equivalence"; refusal/clarification questions correctly produce no CHQL and
+  // would otherwise depress the denominator. See convex/evaluationHelpers.ts.
+  const equivalenceQuestions = results.filter(
+    (r) => r.question.expectedBehavior === "equivalence",
+  );
+  const equivalenceCount = equivalenceQuestions.filter(
     (r) => r.metrics.chqlEquivalent === "equivalent",
   ).length;
+  const equivalenceQuestionCount = equivalenceQuestions.length;
 
   const report: EvalReport = {
     modelId,
@@ -482,9 +492,14 @@ async function main() {
       avgTotalTokens:
         results.reduce((s, r) => s + r.metrics.totalTokens, 0) / n,
       chqlParsesRate: chqlParsesCount / n,
-      equivalenceRate: equivalenceCount / n,
+      equivalenceRate:
+        equivalenceQuestionCount === 0
+          ? 0
+          : equivalenceCount / equivalenceQuestionCount,
       toolUsageRate: toolUsageCount / n,
     },
+    equivalenceCount,
+    equivalenceQuestionCount,
     results,
   };
 

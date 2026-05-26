@@ -78,7 +78,10 @@ async function runSingleQuery(
   const { client: mcpClient, tools } = await connectAndDiscoverTools();
 
   try {
-    const systemPrompt = buildSystemPrompt(Object.keys(tools).length > 0);
+    const systemPrompt = buildSystemPrompt({
+      hasTools: Object.keys(tools).length > 0,
+      timeZone: "Europe/Prague",
+    });
     const chatHistory = [{ role: "user" as const, content: question.query }];
 
     const startTime = Date.now();

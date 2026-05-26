@@ -117,6 +117,18 @@ interface ConvexRow {
   };
 }
 
+interface AggregateMetrics {
+  successRate: number;
+  avgResponseTimeMs: number;
+  avgInputTokens: number;
+  avgOutputTokens: number;
+  avgTotalTokens: number;
+  totalCostUsd: number;
+  chqlParsesRate: number;
+  equivalenceRate: number;
+  toolUsageRate: number;
+}
+
 interface ConvexRunDetail {
   run: {
     _id: string;
@@ -126,9 +138,61 @@ interface ConvexRunDetail {
     totalQueries: number;
     status: string;
     methodologyVersion?: string;
-    aggregateMetrics?: unknown;
+    aggregateMetrics?: AggregateMetrics;
   };
   results: ConvexRow[];
+}
+
+// ─── Aggregate recompute ──────────────────────────────────────────────────
+
+// Mirror of convex/evaluationHelpers.ts::computeAggregateMetrics, kept in sync
+// so re-exports of old runs reflect the current metric definitions.
+function recomputeAggregates(results: ConvexRow[]) {
+  let successCount = 0;
+  let toolUsageCount = 0;
+  let chqlParsesCount = 0;
+  let equivalenceCount = 0;
+  let equivalenceQuestionCount = 0;
+  let totalResponseTime = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokensAll = 0;
+  let totalCost = 0;
+
+  for (const r of results) {
+    if (r.success) successCount++;
+    if (r.metrics.usedTool) toolUsageCount++;
+    if (r.metrics.chqlParses) chqlParsesCount++;
+    if (r.expectedBehavior === "equivalence") {
+      equivalenceQuestionCount++;
+      if (r.metrics.chqlEquivalent === "equivalent") equivalenceCount++;
+    }
+    totalResponseTime += r.metrics.responseTimeMs;
+    totalInputTokens += r.metrics.inputTokens;
+    totalOutputTokens += r.metrics.outputTokens;
+    totalTokensAll += r.metrics.totalTokens;
+    totalCost += r.metrics.costUsd ?? 0;
+  }
+
+  const n = results.length || 1;
+  return {
+    aggregateMetrics: {
+      successRate: successCount / n,
+      avgResponseTimeMs: totalResponseTime / n,
+      avgInputTokens: totalInputTokens / n,
+      avgOutputTokens: totalOutputTokens / n,
+      avgTotalTokens: totalTokensAll / n,
+      totalCostUsd: totalCost,
+      chqlParsesRate: chqlParsesCount / n,
+      equivalenceRate:
+        equivalenceQuestionCount === 0
+          ? 0
+          : equivalenceCount / equivalenceQuestionCount,
+      toolUsageRate: toolUsageCount / n,
+    },
+    equivalenceCount,
+    equivalenceQuestionCount,
+  };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
@@ -145,6 +209,16 @@ function exportOne(runId: string) {
 
   const { run, results } = detail;
   results.sort((a, b) => a.queryIndex - b.queryIndex);
+
+  // Recompute aggregates locally so old runs (whose stored equivalenceRate used an
+  // all-rows denominator) export the corrected equivalence-only rate without needing
+  // a Convex redeploy + rejudge. Keep semantics in sync with computeAggregateMetrics.
+  const recomputed = recomputeAggregates(results);
+  if (run.aggregateMetrics) {
+    run.aggregateMetrics = { ...run.aggregateMetrics, ...recomputed.aggregateMetrics };
+  } else {
+    run.aggregateMetrics = recomputed.aggregateMetrics;
+  }
 
   const perQuestion: PerQuestionRow[] = results.map((row) => {
     // Reconstruct GoldenQuestion from stored fields. For rows from methodology v1
@@ -221,7 +295,16 @@ function exportOne(runId: string) {
   writeFileSync(mdPath, md);
   writeFileSync(
     jsonPath,
-    JSON.stringify({ ...run, results: perQuestion }, null, 2),
+    JSON.stringify(
+      {
+        ...run,
+        equivalenceCount: recomputed.equivalenceCount,
+        equivalenceQuestionCount: recomputed.equivalenceQuestionCount,
+        results: perQuestion,
+      },
+      null,
+      2,
+    ),
   );
 
   console.log(`💾 ${run.modelId}:`);
