@@ -2,8 +2,6 @@
 
 Read this file whenever modifying or creating UI components in `apps/web/src/components/`.
 
-These principles are distilled from the Refactoring UI methodology and should be applied consistently across the entire frontend.
-
 ## Hierarchy is Everything
 - **Not all elements are equal.** Every screen needs a clear visual hierarchy — primary, secondary, and tertiary content must be visually distinct.
 - **Size isn't everything.** Use font weight (400/500 normal, 600/700 emphasis) and color (dark for primary, grey for secondary, lighter grey for tertiary) to create hierarchy — not just font size.

@@ -35,8 +35,7 @@ coverage/
 .docker/
 
 apps/mcp-server/build/
-docs/RefactoringUI.md
 
 .claude
 
-eval/results
+docs/diagrams
